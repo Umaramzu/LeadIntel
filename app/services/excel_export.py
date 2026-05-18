@@ -26,6 +26,12 @@ FILL_HOOK = PatternFill("solid", fgColor="E4DFEC")
 FILL_OUTREACH = PatternFill("solid", fgColor="D9E2F3")
 FILL_META = PatternFill("solid", fgColor="F2F2F2")
 FILL_ALT_ROW = PatternFill("solid", fgColor="F8F9FA")
+FILL_LOW_CONFIDENCE = PatternFill("solid", fgColor="FFF0F0")
+FILL_LOW_CONFIDENCE_ALT = PatternFill("solid", fgColor="FFE4E4")
+FONT_FLAG = Font(name="Arial", size=10, bold=True, color="CC0000")
+
+MIN_CONFIDENCE = 5
+MIN_EXTRACTED_URLS = 2
 
 ALIGN_WRAP = Alignment(wrap_text=True, vertical="top")
 ALIGN_CENTER = Alignment(horizontal="center", vertical="top")
@@ -73,8 +79,41 @@ COLUMNS = [
     ("Data Gaps", FILL_META, 40),
     ("Source URL 1", FILL_META, 45),
     ("Source URL 2", FILL_META, 45),
+    ("Quality Flag", FILL_META, 20),
     ("Error", FILL_META, 30),
 ]
+
+
+def _get_quality_flag(lead_result) -> str:
+    """Flag leads that need manual review."""
+    flags = []
+    research = lead_result.research or {}
+    confidence = research.get("confidence_score", 0)
+    jina = lead_result.jina or {}
+
+    if lead_result.error:
+        flags.append("PIPELINE ERROR")
+    if confidence < MIN_CONFIDENCE:
+        flags.append(f"LOW CONFIDENCE ({confidence}/10)")
+    if jina.get("extracted", 0) < MIN_EXTRACTED_URLS:
+        flags.append(f"THIN DATA ({jina.get('extracted', 0)} sources)")
+    if not research:
+        flags.append("NO RESEARCH")
+
+    return " | ".join(flags) if flags else ""
+
+
+def _needs_review(lead_result) -> bool:
+    """Check if a lead should be flagged for review."""
+    research = lead_result.research or {}
+    confidence = research.get("confidence_score", 0)
+    jina = lead_result.jina or {}
+    return (
+        lead_result.error is not None
+        or confidence < MIN_CONFIDENCE
+        or jina.get("extracted", 0) < MIN_EXTRACTED_URLS
+        or not research
+    )
 
 
 def _extract_row(lead_result) -> list:
@@ -133,6 +172,7 @@ def _extract_row(lead_result) -> list:
         gaps_text,
         source_urls[0] if len(source_urls) > 0 else "",
         source_urls[1] if len(source_urls) > 1 else "",
+        _get_quality_flag(lead_result),
         lead_result.error or "",
     ]
 
@@ -163,7 +203,7 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
         ("Pain Signals", 10, 15, FILL_PAIN),
         ("Personalization", 16, 17, FILL_HOOK),
         ("Outreach Strategy", 18, 19, FILL_OUTREACH),
-        ("Meta", 20, 24, FILL_META),
+        ("Meta", 20, 25, FILL_META),
     ]
 
     for label, start_col, end_col, fill in group_spans:
@@ -193,6 +233,7 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
         row_num = 6 + row_offset
         row_data = _extract_row(lead_result)
         use_alt = row_offset % 2 == 1
+        flagged = _needs_review(lead_result)
 
         for col_idx, value in enumerate(row_data, start=1):
             cell = ws.cell(row=row_num, column=col_idx, value=value)
@@ -200,7 +241,10 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
             cell.alignment = ALIGN_WRAP
             cell.border = THIN_BORDER
 
-            if use_alt:
+            # Row-level color: flagged leads get red tint, normal leads get alternating
+            if flagged:
+                cell.fill = FILL_LOW_CONFIDENCE_ALT if use_alt else FILL_LOW_CONFIDENCE
+            elif use_alt:
                 cell.fill = FILL_ALT_ROW
 
             # Confidence score color coding
@@ -225,8 +269,12 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
                 cell.value = "Profile"
                 cell.font = FONT_LINK
 
-            # Error column red
+            # Quality flag column bold red
             if col_idx == 24 and value:
+                cell.font = FONT_FLAG
+
+            # Error column red
+            if col_idx == 25 and value:
                 cell.font = FONT_ERROR
 
     # ── Freeze Panes ──
