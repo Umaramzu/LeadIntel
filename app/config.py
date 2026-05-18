@@ -1,0 +1,25 @@
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+
+
+class Settings(BaseSettings):
+    app_name: str = "LeadIntel"
+    debug: bool = False
+
+    # API Keys
+    openai_api_key: str = ""
+    serper_api_key: str = ""
+    jina_api_key: str = ""
+    apollo_api_key: str = ""
+
+    # Pipeline defaults
+    max_search_queries: int = 3
+    max_jina_extractions: int = 5
+    openai_model: str = "gpt-4.1-mini"
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

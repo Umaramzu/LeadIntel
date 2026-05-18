@@ -1,0 +1,8 @@
+myenv/
+__pycache__/
+.env
+.claude/
+.vscode/
+test_leads.csv
+leadintel_research.xlsx
+test_leads_research.xlsx
