@@ -51,7 +51,15 @@ RULES:
 - Generic filler like "they care about growth" or "they value innovation" is useless — tie every point to concrete evidence from the research
 - Pain signals must be specific to their industry, role, and company stage — not broad business clichés
 - The personalization hook must reference something concrete from the research (a specific service, news event, initiative, or statement) — not a generic observation
-- Confidence score reflects data richness: 8-10 = multiple verified sources, 4-7 = some data with gaps, 1-3 = mostly inferred"""
+- Confidence score reflects data richness: 8-10 = multiple verified sources, 4-7 = some data with gaps, 1-3 = mostly inferred
+
+LINKEDIN DATA (when provided):
+- LinkedIn profile and posts data is HIGH-VALUE — it shows verified role, career trajectory, self-described expertise, and topics they publicly care about
+- Use the "about" section to understand their professional identity and priorities
+- Use their post topics and engagement to identify what they're actively thinking about — these make the BEST personalization hooks
+- A recent post with high engagement = a topic they're passionate about = ideal outreach opener
+- Their skills list shows what they want to be known for
+- Career history shows trajectory and tenure — a new role means different priorities than someone 3 years in"""
 
 
 def _build_user_prompt(
@@ -61,6 +69,7 @@ def _build_user_prompt(
     linkedin: str | None,
     serper_snippets: list[dict],
     jina_extractions: list[dict],
+    linkedin_data: dict | None = None,
 ) -> str:
     parts = [
         f"PROSPECT: {name}",
@@ -70,6 +79,38 @@ def _build_user_prompt(
         parts.append(f"EMAIL: {email}")
     if linkedin:
         parts.append(f"LINKEDIN: {linkedin}")
+
+    # Add LinkedIn profile + posts data (when available)
+    if linkedin_data:
+        profile = linkedin_data.get("profile", {})
+        posts = linkedin_data.get("posts", [])
+
+        if profile:
+            parts.append("\n--- LINKEDIN PROFILE ---")
+            if profile.get("headline"):
+                parts.append(f"Headline: {profile['headline']}")
+            if profile.get("about"):
+                parts.append(f"About: {profile['about']}")
+            if profile.get("job_title"):
+                parts.append(f"Current Title: {profile['job_title']}")
+            if profile.get("company_name"):
+                parts.append(f"Company: {profile['company_name']} ({profile.get('company_industry', '')}, {profile.get('company_size', '')} employees)")
+            if profile.get("total_experience_years"):
+                parts.append(f"Total Experience: {profile['total_experience_years']} years")
+            if profile.get("experiences"):
+                parts.append("Career History:")
+                for exp in profile["experiences"]:
+                    status = "current" if exp.get("still_working") else f"ended {exp.get('ended', '?')}"
+                    parts.append(f"  • {exp['title']} at {exp['company']} (started {exp.get('started', '?')}, {status})")
+            if profile.get("skills"):
+                parts.append(f"Skills: {', '.join(profile['skills'][:10])}")
+
+        if posts:
+            parts.append("\n--- LINKEDIN POSTS (recent activity) ---")
+            for i, post in enumerate(posts[:5], 1):
+                parts.append(f"\nPost {i} ({post.get('relative_date', post.get('date', ''))}):")
+                parts.append(f"  Text: {post['text'][:500]}")
+                parts.append(f"  Engagement: {post.get('total_reactions', 0)} reactions, {post.get('comments', 0)} comments, {post.get('reposts', 0)} reposts")
 
     # Add search snippets
     parts.append("\n--- SEARCH RESULTS ---")
@@ -106,6 +147,7 @@ async def synthesize_lead(
     linkedin: str | None,
     serper_results: dict,
     jina_extractions: list[dict],
+    linkedin_data: dict | None = None,
 ) -> dict:
     """Send all research data to OpenAI and get structured prospect profile."""
     settings = get_settings()
@@ -121,7 +163,8 @@ async def synthesize_lead(
         })
 
     user_prompt = _build_user_prompt(
-        name, company, email, linkedin, serper_snippets, jina_extractions
+        name, company, email, linkedin, serper_snippets, jina_extractions,
+        linkedin_data=linkedin_data,
     )
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)

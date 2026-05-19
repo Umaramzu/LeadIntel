@@ -7,6 +7,7 @@ from app.models import Lead, PipelineConfig
 from app.services.serper import search_lead
 from app.services.jina import extract_lead_content
 from app.services.openai_synth import synthesize_lead
+from app.services.apify import scrape_linkedin
 
 MAX_CONCURRENCY = 5
 
@@ -16,6 +17,7 @@ class LeadResult:
     lead: dict
     serper: dict | None = None
     jina: dict | None = None
+    linkedin_data: dict | None = None
     research: dict | None = None
     source_urls: list[str] = field(default_factory=list)
     error: str | None = None
@@ -44,6 +46,7 @@ async def _process_one_lead(
         try:
             serper_results = None
             jina_extraction = None
+            linkedin_data = None
 
             # Step 1: Serper search
             if config.search:
@@ -77,7 +80,15 @@ async def _process_one_lead(
                     if len(result.source_urls) >= 2:
                         break
 
-            # Step 3: OpenAI synthesis (requires Serper results + Jina extractions)
+            # Step 3: LinkedIn scraping via Apify (optional, requires LinkedIn URL)
+            if config.linkedin and lead.linkedin:
+                try:
+                    linkedin_data = await scrape_linkedin(lead.linkedin)
+                    result.linkedin_data = linkedin_data
+                except Exception:
+                    pass
+
+            # Step 4: OpenAI synthesis (requires Serper results + Jina extractions)
             if config.synthesize and serper_results:
                 extractions = (
                     jina_extraction["extractions"] if jina_extraction else []
@@ -89,6 +100,7 @@ async def _process_one_lead(
                     linkedin=lead.linkedin,
                     serper_results=serper_results,
                     jina_extractions=extractions,
+                    linkedin_data=linkedin_data,
                 )
                 result.research = synthesis["research"]
 

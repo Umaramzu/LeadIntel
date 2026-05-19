@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     serper_api_key: str = ""
     jina_api_key: str = ""
     apollo_api_key: str = ""
+    apify_api_token: str = ""
 
     # Pipeline defaults
     max_search_queries: int = 3

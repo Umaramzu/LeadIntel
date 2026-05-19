@@ -15,6 +15,7 @@ async def process_leads(
     extract: bool = Query(True, description="Run Jina content extraction"),
     synthesize: bool = Query(True, description="Run OpenAI research synthesis"),
     apollo: bool = Query(False, description="Run Apollo enrichment"),
+    linkedin: bool = Query(False, description="Run Apify LinkedIn scraping (profile + posts)"),
 ):
     """End-to-end: upload CSV → pipeline → download Excel report."""
 
@@ -32,7 +33,8 @@ async def process_leads(
 
     # 2. Run pipeline
     config = PipelineConfig(
-        search=search, extract=extract, synthesize=synthesize, apollo=apollo,
+        search=search, extract=extract, synthesize=synthesize,
+        apollo=apollo, linkedin=linkedin,
     )
 
     try:
@@ -61,6 +63,7 @@ async def process_leads_json(
     extract: bool = Query(True),
     synthesize: bool = Query(True),
     apollo: bool = Query(False),
+    linkedin: bool = Query(False),
 ):
     """Same as /process but returns JSON instead of Excel. Useful for integrations."""
 
@@ -76,7 +79,8 @@ async def process_leads_json(
         )
 
     config = PipelineConfig(
-        search=search, extract=extract, synthesize=synthesize, apollo=apollo,
+        search=search, extract=extract, synthesize=synthesize,
+        apollo=apollo, linkedin=linkedin,
     )
 
     try:
@@ -96,6 +100,7 @@ async def process_leads_json(
         "results": [
             {
                 "lead": r.lead,
+                "linkedin_data": r.linkedin_data,
                 "research": r.research,
                 "source_urls": r.source_urls,
                 "error": r.error,

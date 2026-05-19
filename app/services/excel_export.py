@@ -19,6 +19,7 @@ FONT_SCORE = Font(name="Arial", size=11, bold=True)
 
 FILL_HEADER = PatternFill("solid", fgColor="1F4E79")
 FILL_LEAD_INFO = PatternFill("solid", fgColor="D6E4F0")
+FILL_LINKEDIN = PatternFill("solid", fgColor="DDE8F0")
 FILL_COMPANY = PatternFill("solid", fgColor="E2EFDA")
 FILL_ROLE = PatternFill("solid", fgColor="FCE4D6")
 FILL_PAIN = PatternFill("solid", fgColor="FFF2CC")
@@ -49,32 +50,37 @@ THIN_BORDER = Border(
 # (header_label, group_fill, column_width)
 
 COLUMNS = [
-    # Lead Info
+    # Lead Info (1-4)
     ("Name", FILL_LEAD_INFO, 20),
     ("Company", FILL_LEAD_INFO, 20),
     ("Email", FILL_LEAD_INFO, 25),
     ("LinkedIn", FILL_LEAD_INFO, 15),
-    # Company Snapshot
+    # LinkedIn Intel (5-8) — populated when Apify LinkedIn scraping is enabled
+    ("Headline", FILL_LINKEDIN, 35),
+    ("About", FILL_LINKEDIN, 45),
+    ("Top Posts", FILL_LINKEDIN, 50),
+    ("Post Engagement", FILL_LINKEDIN, 25),
+    # Company Snapshot (9-11)
     ("What They Do", FILL_COMPANY, 40),
     ("Size & Stage", FILL_COMPANY, 25),
     ("Recent News", FILL_COMPANY, 45),
-    # Prospect Role
+    # Prospect Role (12-13)
     ("Likely Priorities", FILL_ROLE, 40),
     ("Key Responsibilities", FILL_ROLE, 40),
-    # Pain Signals
+    # Pain Signals (14-19)
     ("Pain Signal 1", FILL_PAIN, 40),
     ("Evidence 1", FILL_PAIN, 35),
     ("Pain Signal 2", FILL_PAIN, 40),
     ("Evidence 2", FILL_PAIN, 35),
     ("Pain Signal 3", FILL_PAIN, 40),
     ("Evidence 3", FILL_PAIN, 35),
-    # Personalization
+    # Personalization (20-21)
     ("Personalization Hook", FILL_HOOK, 40),
     ("Why It Matters", FILL_HOOK, 40),
-    # Outreach
+    # Outreach (22-23)
     ("Recommended Angle", FILL_OUTREACH, 45),
     ("Talking Points", FILL_OUTREACH, 50),
-    # Meta
+    # Meta (24-29)
     ("Confidence (1-10)", FILL_META, 16),
     ("Data Gaps", FILL_META, 40),
     ("Source URL 1", FILL_META, 45),
@@ -116,6 +122,37 @@ def _needs_review(lead_result) -> bool:
     )
 
 
+def _extract_linkedin_cells(lead_result) -> list:
+    """Extract LinkedIn columns from lead result. Returns 4 cells."""
+    li = lead_result.linkedin_data or {}
+    profile = li.get("profile", {})
+    posts = li.get("posts", [])
+
+    headline = profile.get("headline", "")
+    about = profile.get("about", "")
+    if about and len(about) > 300:
+        about = about[:297] + "..."
+
+    # Summarize top posts (up to 3)
+    post_lines = []
+    for p in posts[:3]:
+        text = p.get("text", "")[:150]
+        reactions = p.get("total_reactions", 0)
+        date = p.get("relative_date", p.get("date", ""))
+        post_lines.append(f"[{date}] ({reactions} reactions) {text}")
+    top_posts = "\n\n".join(post_lines)
+
+    # Aggregate engagement
+    if posts:
+        total_reactions = sum(p.get("total_reactions", 0) for p in posts)
+        total_comments = sum(p.get("comments", 0) for p in posts)
+        engagement = f"{len(posts)} posts | {total_reactions} reactions | {total_comments} comments"
+    else:
+        engagement = ""
+
+    return [headline, about, top_posts, engagement]
+
+
 def _extract_row(lead_result) -> list:
     """Extract a flat row from a LeadResult for the spreadsheet."""
     lead = lead_result.lead
@@ -152,6 +189,8 @@ def _extract_row(lead_result) -> list:
         lead.get("company", ""),
         lead.get("email", ""),
         lead.get("linkedin", ""),
+        # LinkedIn Intel
+        *_extract_linkedin_cells(lead_result),
         # Company Snapshot
         company.get("what_they_do", ""),
         company.get("size_and_stage", ""),
@@ -198,12 +237,13 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
     # ── Group Header Row (Row 4) ──
     group_spans = [
         ("Lead Info", 1, 4, FILL_LEAD_INFO),
-        ("Company Snapshot", 5, 7, FILL_COMPANY),
-        ("Prospect Role", 8, 9, FILL_ROLE),
-        ("Pain Signals", 10, 15, FILL_PAIN),
-        ("Personalization", 16, 17, FILL_HOOK),
-        ("Outreach Strategy", 18, 19, FILL_OUTREACH),
-        ("Meta", 20, 25, FILL_META),
+        ("LinkedIn Intel", 5, 8, FILL_LINKEDIN),
+        ("Company Snapshot", 9, 11, FILL_COMPANY),
+        ("Prospect Role", 12, 13, FILL_ROLE),
+        ("Pain Signals", 14, 19, FILL_PAIN),
+        ("Personalization", 20, 21, FILL_HOOK),
+        ("Outreach Strategy", 22, 23, FILL_OUTREACH),
+        ("Meta", 24, 29, FILL_META),
     ]
 
     for label, start_col, end_col, fill in group_spans:
@@ -247,8 +287,8 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
             elif use_alt:
                 cell.fill = FILL_ALT_ROW
 
-            # Confidence score color coding
-            if col_idx == 20 and isinstance(value, int):
+            # Confidence score color coding (col 24)
+            if col_idx == 24 and isinstance(value, int):
                 cell.alignment = ALIGN_CENTER
                 cell.font = FONT_SCORE
                 if value >= 8:
@@ -258,23 +298,23 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
                 else:
                     cell.fill = PatternFill("solid", fgColor="FFC7CE")
 
-            # Source URLs as clickable hyperlinks
-            if col_idx in (22, 23) and value:
+            # Source URLs as clickable hyperlinks (cols 26-27)
+            if col_idx in (26, 27) and value:
                 cell.hyperlink = value
                 cell.font = FONT_LINK
 
-            # LinkedIn as clickable hyperlink
+            # LinkedIn as clickable hyperlink (col 4)
             if col_idx == 4 and value:
                 cell.hyperlink = value
                 cell.value = "Profile"
                 cell.font = FONT_LINK
 
-            # Quality flag column bold red
-            if col_idx == 24 and value:
+            # Quality flag column bold red (col 28)
+            if col_idx == 28 and value:
                 cell.font = FONT_FLAG
 
-            # Error column red
-            if col_idx == 25 and value:
+            # Error column red (col 29)
+            if col_idx == 29 and value:
                 cell.font = FONT_ERROR
 
     # ── Freeze Panes ──
