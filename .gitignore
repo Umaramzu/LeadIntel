@@ -1,6 +1,9 @@
 myenv/
 __pycache__/
 .env
+.env.*
+!.env.example
+deploy.sh
 .claude/
 .vscode/
 test_leads.csv
