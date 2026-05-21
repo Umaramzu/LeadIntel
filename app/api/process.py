@@ -1,20 +1,21 @@
 import logging
-from fastapi import APIRouter, UploadFile, File, Query, HTTPException
+from fastapi import APIRouter, UploadFile, File, Query, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from app.models import Lead, PipelineConfig
 from app.utils.csv_parser import parse_upload
 from app.services.pipeline import run_pipeline, LeadResult, PipelineResult
 from app.services.excel_export import export_pipeline_results
 from app.services import db
+from app.api.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["process"])
 
 
-def _init_job(filename: str, leads: list[Lead], config: PipelineConfig) -> tuple[str | None, list[str] | None]:
+def _init_job(filename: str, leads: list[Lead], config: PipelineConfig, user_id: str | None = None) -> tuple[str | None, list[str] | None]:
     """Create job + leads in Supabase. Returns (job_id, lead_ids) or (None, None) on failure."""
     try:
-        job = db.create_job(filename=filename, total_leads=len(leads), config=config)
+        job = db.create_job(filename=filename, total_leads=len(leads), config=config, user_id=user_id)
         job_id = job["id"]
         db_leads = db.insert_leads(job_id, leads)
         db_lead_ids = [dl["id"] for dl in db_leads]
@@ -155,6 +156,7 @@ async def process_leads(
     synthesize: bool = Query(True, description="Run OpenAI research synthesis"),
     apollo: bool = Query(False, description="Run Apollo enrichment"),
     linkedin: bool = Query(False, description="Run Apify LinkedIn scraping (profile + posts)"),
+    user_id: str | None = Depends(get_current_user),
 ):
     """End-to-end: upload CSV → pipeline → download Excel report."""
 
@@ -175,7 +177,7 @@ async def process_leads(
         search=search, extract=extract, synthesize=synthesize,
         apollo=apollo, linkedin=linkedin,
     )
-    job_id, db_lead_ids = _init_job(file.filename or "upload.csv", leads, config)
+    job_id, db_lead_ids = _init_job(file.filename or "upload.csv", leads, config, user_id=user_id)
 
     # 3. Run pipeline with dedup
     try:
@@ -210,6 +212,7 @@ async def process_leads_json(
     synthesize: bool = Query(True),
     apollo: bool = Query(False),
     linkedin: bool = Query(False),
+    user_id: str | None = Depends(get_current_user),
 ):
     """Same as /process but returns JSON instead of Excel. Useful for integrations."""
 
@@ -228,7 +231,7 @@ async def process_leads_json(
         search=search, extract=extract, synthesize=synthesize,
         apollo=apollo, linkedin=linkedin,
     )
-    job_id, db_lead_ids = _init_job(file.filename or "upload.csv", leads, config)
+    job_id, db_lead_ids = _init_job(file.filename or "upload.csv", leads, config, user_id=user_id)
 
     try:
         result, cached_count = await _run_with_dedup(leads, config, job_id, db_lead_ids)
