@@ -23,8 +23,6 @@ FILL_LINKEDIN = PatternFill("solid", fgColor="DDE8F0")
 FILL_COMPANY = PatternFill("solid", fgColor="E2EFDA")
 FILL_ROLE = PatternFill("solid", fgColor="FCE4D6")
 FILL_PAIN = PatternFill("solid", fgColor="FFF2CC")
-FILL_HOOK = PatternFill("solid", fgColor="E4DFEC")
-FILL_OUTREACH = PatternFill("solid", fgColor="D9E2F3")
 FILL_META = PatternFill("solid", fgColor="F2F2F2")
 FILL_ALT_ROW = PatternFill("solid", fgColor="F8F9FA")
 FILL_LOW_CONFIDENCE = PatternFill("solid", fgColor="FFF0F0")
@@ -60,27 +58,22 @@ COLUMNS = [
     ("About", FILL_LINKEDIN, 45),
     ("Top Posts", FILL_LINKEDIN, 50),
     ("Post Engagement", FILL_LINKEDIN, 25),
-    # Company Snapshot (9-11)
-    ("What They Do", FILL_COMPANY, 40),
+    # Company Snapshot (9-12)
+    ("What They Do", FILL_COMPANY, 45),
+    ("Industry", FILL_COMPANY, 25),
+    ("Key Offerings", FILL_COMPANY, 40),
     ("Size & Stage", FILL_COMPANY, 25),
-    ("Recent News", FILL_COMPANY, 45),
-    # Prospect Role (12-13)
+    # Prospect Role (13-14)
     ("Likely Priorities", FILL_ROLE, 40),
     ("Key Responsibilities", FILL_ROLE, 40),
-    # Pain Signals (14-19)
+    # Pain Signals (15-20)
     ("Pain Signal 1", FILL_PAIN, 40),
     ("Evidence 1", FILL_PAIN, 35),
     ("Pain Signal 2", FILL_PAIN, 40),
     ("Evidence 2", FILL_PAIN, 35),
     ("Pain Signal 3", FILL_PAIN, 40),
     ("Evidence 3", FILL_PAIN, 35),
-    # Personalization (20-21)
-    ("Personalization Hook", FILL_HOOK, 40),
-    ("Why It Matters", FILL_HOOK, 40),
-    # Outreach (22-23)
-    ("Recommended Angle", FILL_OUTREACH, 45),
-    ("Talking Points", FILL_OUTREACH, 50),
-    # Meta (24-29)
+    # Meta (21-26)
     ("Confidence (1-10)", FILL_META, 16),
     ("Data Gaps", FILL_META, 40),
     ("Source URL 1", FILL_META, 45),
@@ -162,10 +155,8 @@ def _extract_row(lead_result) -> list:
     company = research.get("company_snapshot", {})
     role = research.get("prospect_role", {})
     pains = research.get("pain_signals", [])
-    hook = research.get("personalization_hook", {})
-    outreach = research.get("outreach_angle", {})
 
-    # Flatten pain signals (up to 3)
+    # Flatten pain signals (up to 3, may be empty if no evidence found)
     pain_cells = []
     for i in range(3):
         if i < len(pains):
@@ -175,11 +166,6 @@ def _extract_row(lead_result) -> list:
             pain_cells.append("")
             pain_cells.append("")
 
-    # Join talking points with numbered list
-    talking_points = outreach.get("talking_points", [])
-    tp_text = "\n".join(f"{i+1}. {tp}" for i, tp in enumerate(talking_points))
-
-    # Join data gaps
     data_gaps = research.get("data_gaps", [])
     gaps_text = "\n".join(f"• {g}" for g in data_gaps)
 
@@ -193,19 +179,14 @@ def _extract_row(lead_result) -> list:
         *_extract_linkedin_cells(lead_result),
         # Company Snapshot
         company.get("what_they_do", ""),
+        company.get("industry", ""),
+        "\n".join(f"• {o}" for o in company.get("key_offerings", [])),
         company.get("size_and_stage", ""),
-        company.get("recent_news", ""),
         # Prospect Role
         role.get("likely_priorities", ""),
         role.get("key_responsibilities", ""),
-        # Pain Signals (flattened)
+        # Pain Signals (flattened, may have empty cells if <3 signals)
         *pain_cells,
-        # Personalization
-        hook.get("hook", ""),
-        hook.get("why_it_matters", ""),
-        # Outreach
-        outreach.get("recommended_angle", ""),
-        tp_text,
         # Meta
         research.get("confidence_score", ""),
         gaps_text,
@@ -238,12 +219,10 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
     group_spans = [
         ("Lead Info", 1, 4, FILL_LEAD_INFO),
         ("LinkedIn Intel", 5, 8, FILL_LINKEDIN),
-        ("Company Snapshot", 9, 11, FILL_COMPANY),
-        ("Prospect Role", 12, 13, FILL_ROLE),
-        ("Pain Signals", 14, 19, FILL_PAIN),
-        ("Personalization", 20, 21, FILL_HOOK),
-        ("Outreach Strategy", 22, 23, FILL_OUTREACH),
-        ("Meta", 24, 29, FILL_META),
+        ("Company Snapshot", 9, 12, FILL_COMPANY),
+        ("Prospect Role", 13, 14, FILL_ROLE),
+        ("Pain Signals", 15, 20, FILL_PAIN),
+        ("Meta", 21, 26, FILL_META),
     ]
 
     for label, start_col, end_col, fill in group_spans:
@@ -287,8 +266,8 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
             elif use_alt:
                 cell.fill = FILL_ALT_ROW
 
-            # Confidence score color coding (col 24)
-            if col_idx == 24 and isinstance(value, int):
+            # Confidence score color coding (col 21)
+            if col_idx == 21 and isinstance(value, int):
                 cell.alignment = ALIGN_CENTER
                 cell.font = FONT_SCORE
                 if value >= 8:
@@ -298,8 +277,8 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
                 else:
                     cell.fill = PatternFill("solid", fgColor="FFC7CE")
 
-            # Source URLs as clickable hyperlinks (cols 26-27)
-            if col_idx in (26, 27) and value:
+            # Source URLs as clickable hyperlinks (cols 23-24)
+            if col_idx in (23, 24) and value:
                 cell.hyperlink = value
                 cell.font = FONT_LINK
 
@@ -309,12 +288,12 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
                 cell.value = "Profile"
                 cell.font = FONT_LINK
 
-            # Quality flag column bold red (col 28)
-            if col_idx == 28 and value:
+            # Quality flag column bold red (col 25)
+            if col_idx == 25 and value:
                 cell.font = FONT_FLAG
 
-            # Error column red (col 29)
-            if col_idx == 29 and value:
+            # Error column red (col 26)
+            if col_idx == 26 and value:
                 cell.font = FONT_ERROR
 
     # ── Freeze Panes ──

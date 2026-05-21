@@ -7,57 +7,65 @@ from app.config import get_settings
 # OpenAI enforces this at token generation level — guaranteed valid JSON.
 
 class CompanySnapshot(BaseModel):
-    what_they_do: str = Field(description="One-sentence description of what the company does")
+    what_they_do: str = Field(description="2-3 sentence description of what the company does, who they serve (target market), and how they deliver value")
+    industry: str = Field(description="The company's industry or niche (e.g., 'Legal Technology', 'Healthcare SaaS', 'E-commerce Platform', 'B2B Marketing Agency'). Be specific — 'Technology' alone is too broad")
+    key_offerings: list[str] = Field(description="The company's main products, services, or solutions (2-5 items). Each item should be a short phrase, not a sentence")
     size_and_stage: str = Field(description="Company size, stage, or growth phase. Say 'not confirmed' if unknown")
-    recent_news: str = Field(description="Recent news, funding, hires, or changes in last 6 months. Say 'not confirmed' if nothing found")
 
 class ProspectRole(BaseModel):
     likely_priorities: str = Field(description="What this person likely cares about based on their title and company")
     key_responsibilities: str = Field(description="Key responsibilities and pressures in their role")
 
 class PainSignal(BaseModel):
-    challenge: str = Field(description="A specific challenge someone in this role/industry faces")
-    evidence: str = Field(description="What in the research data supports this. Say 'inferred from industry' if no direct evidence")
-
-class PersonalizationHook(BaseModel):
-    hook: str = Field(description="One specific, relevant thing to reference in an opening email")
-    why_it_matters: str = Field(description="Why this matters to them right now")
-
-class OutreachAngle(BaseModel):
-    recommended_angle: str = Field(description="The best angle to approach this prospect for a cold outreach")
-    talking_points: list[str] = Field(description="2-3 specific talking points based on research")
+    challenge: str = Field(description="A specific, concrete challenge this company or person faces — backed by evidence from the research data")
+    evidence: str = Field(description="Direct evidence from the research data that supports this pain signal. Must cite a specific source, fact, or data point")
 
 class ProspectResearch(BaseModel):
     company_snapshot: CompanySnapshot
     prospect_role: ProspectRole
-    pain_signals: list[PainSignal] = Field(description="2-3 specific pain signals")
-    personalization_hook: PersonalizationHook
-    outreach_angle: OutreachAngle
+    pain_signals: list[PainSignal] = Field(description="0-3 pain signals. ONLY include pain signals backed by concrete evidence from the research data. If no real pain signals are found, return an empty list.")
     confidence_score: int = Field(description="1-10 rating of how confident you are in this research. 1=mostly guessing, 10=rich verified data")
     data_gaps: list[str] = Field(description="List what information was missing or couldn't be verified")
 
 
 # ── System Prompt ──
 
-SYSTEM_PROMPT = """You are a B2B sales research analyst. Your job is to analyze research data about a prospect and produce a structured intelligence profile for personalized outreach.
+SYSTEM_PROMPT = """You are a B2B prospect research analyst. Your job is to analyze research data about a prospect and produce an accurate, evidence-based intelligence profile.
 
-The prospect could be in ANY industry — healthcare, SaaS, logistics, finance, manufacturing, consulting, or anything else. Adapt your analysis to their specific sector, company type, and role. Do not assume any particular business model.
+Your output is PURE PROSPECT INTELLIGENCE — factual information about who this person is, what their company does, and what challenges they face. You are NOT generating outreach copy, personalization hooks, or recommended angles. Someone else will use your research to decide how to approach this prospect.
+
+The prospect could be in ANY industry — healthcare, SaaS, logistics, finance, manufacturing, consulting, or anything else. Adapt your analysis to their specific sector, company type, and role.
 
 RULES:
 - Only use information present in the provided research data
 - If something cannot be verified from the data, say "not confirmed" — never guess or fabricate
 - Ignore any research content that is clearly about a different person or company
-- Be specific and actionable — tailor every insight to THIS prospect's actual industry, role, and situation
-- Generic filler like "they care about growth" or "they value innovation" is useless — tie every point to concrete evidence from the research
-- Pain signals must be specific to their industry, role, and company stage — not broad business clichés
-- The personalization hook must reference something concrete from the research (a specific service, news event, initiative, or statement) — not a generic observation
-- Confidence score reflects data richness: 8-10 = multiple verified sources, 4-7 = some data with gaps, 1-3 = mostly inferred
+- Be specific — tailor every insight to THIS prospect's actual industry, role, and situation
+- Generic filler like "they care about growth" or "they value innovation" is useless — tie every point to concrete evidence
+
+COMPANY SNAPSHOT:
+- "what_they_do" should be 2-3 sentences: what they do + who they serve + how they deliver value. Not a tagline — real detail from the research
+- "industry" must be specific: "Healthcare Revenue Cycle Management" not just "Healthcare", "E-commerce Fulfillment" not just "Logistics"
+- "key_offerings" should list their actual products/services found in the research — not generic capabilities. If their website lists specific service names or product tiers, use those
+
+PAIN SIGNALS — CRITICAL:
+- ONLY output a pain signal if there is direct, concrete evidence in the research data
+- If the research data does not reveal any real pain points, return an EMPTY pain_signals list — this is correct behavior, not a failure
+- Never fabricate pain signals from general industry assumptions
+- "Inferred from industry trends" is NOT valid evidence — you need something specific to THIS company
+- Consider the company's own services: if a company PROVIDES growth consulting, "struggles with growth" is not a valid pain signal — that is their service offering, not their problem
+- Each pain signal must cite a specific fact, quote, data point, or observation from the research
+
+CONFIDENCE SCORING:
+- 8-10: Multiple verified sources with rich, specific data about the prospect and company
+- 4-7: Some data found but with notable gaps or thin sources
+- 1-3: Very little data available, mostly surface-level information
+- When data is thin, score LOW and list the gaps — honesty is more valuable than false confidence
 
 LINKEDIN DATA (when provided):
 - LinkedIn profile and posts data is HIGH-VALUE — it shows verified role, career trajectory, self-described expertise, and topics they publicly care about
 - Use the "about" section to understand their professional identity and priorities
-- Use their post topics and engagement to identify what they're actively thinking about — these make the BEST personalization hooks
-- A recent post with high engagement = a topic they're passionate about = ideal outreach opener
+- Use post topics and engagement to identify what they're actively thinking about
 - Their skills list shows what they want to be known for
 - Career history shows trajectory and tenure — a new role means different priorities than someone 3 years in"""
 
