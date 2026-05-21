@@ -1,11 +1,27 @@
+import logging
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from app.models import PipelineConfig
 from app.utils.csv_parser import parse_upload
 from app.services.pipeline import run_pipeline
 from app.services.excel_export import export_pipeline_results
+from app.services import db
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["process"])
+
+
+def _init_job(filename: str, leads, config: PipelineConfig) -> tuple[str, list[str]]:
+    """Create job + leads in Supabase. Returns (job_id, lead_ids) or (None, None) on failure."""
+    try:
+        job = db.create_job(filename=filename, total_leads=len(leads), config=config)
+        job_id = job["id"]
+        db_leads = db.insert_leads(job_id, leads)
+        db_lead_ids = [dl["id"] for dl in db_leads]
+        return job_id, db_lead_ids
+    except Exception as e:
+        logger.warning(f"Supabase init failed, running without persistence: {e}")
+        return None, None
 
 
 @router.post("/process")
@@ -31,20 +47,26 @@ async def process_leads(
             detail=f"No valid leads found. {len(skipped)} rows skipped.",
         )
 
-    # 2. Run pipeline
+    # 2. Create job in Supabase
     config = PipelineConfig(
         search=search, extract=extract, synthesize=synthesize,
         apollo=apollo, linkedin=linkedin,
     )
+    job_id, db_lead_ids = _init_job(file.filename or "upload.csv", leads, config)
 
+    # 3. Run pipeline
     try:
-        result = await run_pipeline(leads, config)
+        result = await run_pipeline(leads, config, job_id=job_id, db_lead_ids=db_lead_ids)
     except Exception as e:
+        if job_id:
+            try:
+                db.update_job(job_id, status="failed")
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {str(e)}")
 
-    # 3. Generate Excel
+    # 4. Generate Excel
     buffer = export_pipeline_results(result)
-
     filename = file.filename.rsplit(".", 1)[0] if file.filename else "leads"
 
     return StreamingResponse(
@@ -82,13 +104,20 @@ async def process_leads_json(
         search=search, extract=extract, synthesize=synthesize,
         apollo=apollo, linkedin=linkedin,
     )
+    job_id, db_lead_ids = _init_job(file.filename or "upload.csv", leads, config)
 
     try:
-        result = await run_pipeline(leads, config)
+        result = await run_pipeline(leads, config, job_id=job_id, db_lead_ids=db_lead_ids)
     except Exception as e:
+        if job_id:
+            try:
+                db.update_job(job_id, status="failed")
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {str(e)}")
 
     return {
+        "job_id": result.job_id,
         "summary": {
             "total": result.total,
             "processed": result.processed,

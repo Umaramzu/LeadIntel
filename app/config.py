@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     apollo_api_key: str = ""
     apify_api_token: str = ""
 
+    # Supabase
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+
     # Pipeline defaults
     max_search_queries: int = 3
     max_jina_extractions: int = 5
