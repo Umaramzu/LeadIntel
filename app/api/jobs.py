@@ -47,8 +47,13 @@ async def export_job(job_id: str):
     lead_results = []
     for lead_row in leads:
         research_data = lead_row.get("research_results")
-        # research_results is a list from the join — take first (unique constraint)
-        rr = research_data[0] if research_data else {}
+        # research_results can be list (one-to-many) or dict (one-to-one unique constraint)
+        if isinstance(research_data, list):
+            rr = research_data[0] if research_data else {}
+        elif isinstance(research_data, dict):
+            rr = research_data
+        else:
+            rr = {}
 
         research = {}
         if rr:

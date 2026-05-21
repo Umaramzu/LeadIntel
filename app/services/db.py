@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 from app.config import get_settings
 from app.models import Lead, PipelineConfig
@@ -82,6 +83,40 @@ def get_leads_for_job(job_id: str) -> list[dict]:
         .execute()
     )
     return result.data
+
+
+# ── Deduplication ──
+
+def find_existing_research(linkedin_urls: list[str], max_age_days: int | None = None) -> dict[str, dict]:
+    """Look up already-processed leads by LinkedIn URL.
+    Only returns results newer than max_age_days (default from settings).
+    Returns {linkedin_url: {lead row + research_results}} for leads that have fresh completed research."""
+    if not linkedin_urls:
+        return {}
+
+    if max_age_days is None:
+        max_age_days = get_settings().cache_max_age_days
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+
+    result = (
+        get_db()
+        .table("leads")
+        .select("linkedin_url, name, company, email, status, created_at, research_results(*)")
+        .in_("linkedin_url", linkedin_urls)
+        .eq("status", "completed")
+        .gte("created_at", cutoff)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    existing = {}
+    for row in result.data:
+        url = row["linkedin_url"]
+        if url in existing:
+            continue
+        rr = row.get("research_results")
+        if rr:
+            existing[url] = row
+    return existing
 
 
 # ── Research Results ──

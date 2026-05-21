@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""
 
     # Pipeline defaults
+    cache_max_age_days: int = 30
     max_search_queries: int = 3
     max_jina_extractions: int = 5
     openai_model: str = "gpt-4.1-mini"

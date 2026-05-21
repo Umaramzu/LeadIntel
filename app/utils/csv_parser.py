@@ -3,8 +3,9 @@ import pandas as pd
 from fastapi import UploadFile, HTTPException
 from app.models import Lead
 
-REQUIRED_FIELDS = {"name", "company"}
+REQUIRED_FIELDS = {"name", "company", "linkedin"}
 SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 # Common column name variations → normalized field name
 COLUMN_ALIASES = {
@@ -42,7 +43,7 @@ def _validate_required_fields(df: pd.DataFrame) -> None:
     if missing:
         raise HTTPException(
             status_code=422,
-            detail=f"Missing required columns: {', '.join(missing)}. File must have at least 'name' and 'company' columns.",
+            detail=f"Missing required columns: {', '.join(sorted(missing))}. File must have 'name', 'company', and 'linkedin' columns.",
         )
 
 
@@ -59,6 +60,13 @@ def _df_to_leads(df: pd.DataFrame) -> tuple[list[Lead], list[dict]]:
             skipped.append({"row": idx + 2, "reason": "Missing name or company"})
             continue
 
+        linkedin = row.get("linkedin")
+        linkedin = str(linkedin).strip() if pd.notna(linkedin) and str(linkedin).strip() else None
+
+        if not linkedin:
+            skipped.append({"row": idx + 2, "reason": "Missing LinkedIn URL"})
+            continue
+
         extra = {}
         for col in df.columns:
             if col not in known_fields:
@@ -68,9 +76,6 @@ def _df_to_leads(df: pd.DataFrame) -> tuple[list[Lead], list[dict]]:
 
         email = row.get("email")
         email = str(email).strip() if pd.notna(email) and str(email).strip() else None
-
-        linkedin = row.get("linkedin")
-        linkedin = str(linkedin).strip() if pd.notna(linkedin) and str(linkedin).strip() else None
 
         leads.append(Lead(
             name=name,
@@ -97,6 +102,9 @@ async def parse_upload(file: UploadFile) -> tuple[list[Lead], list[dict]]:
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="File is empty.")
+
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)} MB.")
 
     if ext == ".csv":
         df = pd.read_csv(io.BytesIO(content))
