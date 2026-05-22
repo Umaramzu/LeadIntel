@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException, Depends
 from fastapi.responses import StreamingResponse
@@ -266,4 +267,58 @@ async def process_leads_json(
             }
             for r in result.results
         ],
+    }
+
+
+async def _background_pipeline(leads: list[Lead], config: PipelineConfig, job_id: str, db_lead_ids: list[str] | None):
+    """Run the pipeline in the background, updating job status along the way."""
+    try:
+        await _run_with_dedup(leads, config, job_id, db_lead_ids)
+    except Exception as e:
+        logger.exception(f"Background pipeline failed for job {job_id}")
+        try:
+            db.update_job(job_id, status="failed")
+        except Exception:
+            pass
+
+
+@router.post("/process/start")
+async def start_processing(
+    file: UploadFile = File(..., description="CSV or Excel file with leads"),
+    search: bool = Query(True),
+    extract: bool = Query(True),
+    synthesize: bool = Query(True),
+    apollo: bool = Query(False),
+    linkedin: bool = Query(False),
+    user_id: str | None = Depends(get_current_user),
+):
+    """Start pipeline asynchronously. Returns job_id immediately, processes in background."""
+
+    try:
+        leads, skipped = await parse_upload(file)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"File parsing failed: {str(e)}")
+
+    if not leads:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No valid leads found. {len(skipped)} rows skipped.",
+        )
+
+    config = PipelineConfig(
+        search=search, extract=extract, synthesize=synthesize,
+        apollo=apollo, linkedin=linkedin,
+    )
+    job_id, db_lead_ids = _init_job(file.filename or "upload.csv", leads, config, user_id=user_id)
+
+    if not job_id:
+        raise HTTPException(status_code=500, detail="Failed to create job")
+
+    asyncio.create_task(_background_pipeline(leads, config, job_id, db_lead_ids))
+
+    return {
+        "job_id": job_id,
+        "total_leads": len(leads),
+        "skipped": len(skipped),
+        "status": "processing",
     }
