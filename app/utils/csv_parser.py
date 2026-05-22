@@ -6,6 +6,7 @@ from app.models import Lead
 REQUIRED_FIELDS = {"name", "company", "linkedin"}
 SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+MAX_LEADS_PER_RUN = 100
 
 # Common column name variations → normalized field name
 COLUMN_ALIASES = {
@@ -113,4 +114,11 @@ async def parse_upload(file: UploadFile) -> tuple[list[Lead], list[dict]]:
 
     df = _normalize_columns(df)
     _validate_required_fields(df)
+
+    if len(df) > MAX_LEADS_PER_RUN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many leads ({len(df)}). Maximum is {MAX_LEADS_PER_RUN} per run. Split your file into smaller batches.",
+        )
+
     return _df_to_leads(df)
