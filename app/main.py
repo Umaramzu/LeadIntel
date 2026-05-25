@@ -5,6 +5,7 @@ from app.api.upload import router as upload_router
 from app.api.debug import router as debug_router
 from app.api.process import router as process_router
 from app.api.jobs import router as jobs_router
+from app.api.landing import router as landing_router
 
 settings = get_settings()
 
@@ -20,6 +21,7 @@ app.add_middleware(
 
 app.include_router(process_router)
 app.include_router(jobs_router)
+app.include_router(landing_router)
 app.include_router(upload_router)
 app.include_router(debug_router)
 

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     apollo_api_key: str = ""
     apify_api_token: str = ""
 
+    # Stripe
+    stripe_secret_key: str = ""
+
     # Supabase
     supabase_url: str = ""
     supabase_service_key: str = ""
