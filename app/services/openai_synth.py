@@ -23,7 +23,7 @@ class PainSignal(BaseModel):
 class ProspectResearch(BaseModel):
     company_snapshot: CompanySnapshot
     prospect_role: ProspectRole
-    pain_signals: list[PainSignal] = Field(description="0-3 pain signals. ONLY include pain signals backed by concrete evidence from the research data. If no real pain signals are found, return an empty list.")
+    pain_signals: list[PainSignal] = Field(description="0-3 pain signals — challenges, pressures, or strategic concerns this prospect faces. Use direct evidence when available, reasonable inferences when not. Empty list is valid when data doesn't support any.")
     confidence_score: int = Field(description="1-10 rating of how confident you are in this research. 1=mostly guessing, 10=rich verified data")
     data_gaps: list[str] = Field(description="List what information was missing or couldn't be verified")
 
@@ -48,13 +48,13 @@ COMPANY SNAPSHOT:
 - "industry" must be specific: "Healthcare Revenue Cycle Management" not just "Healthcare", "E-commerce Fulfillment" not just "Logistics"
 - "key_offerings" should list their actual products/services found in the research — not generic capabilities. If their website lists specific service names or product tiers, use those
 
-PAIN SIGNALS — CRITICAL:
-- ONLY output a pain signal if there is direct, concrete evidence in the research data
-- If the research data does not reveal any real pain points, return an EMPTY pain_signals list — this is correct behavior, not a failure
-- Never fabricate pain signals from general industry assumptions
-- "Inferred from industry trends" is NOT valid evidence — you need something specific to THIS company
+PAIN SIGNALS:
+- Aim for 2-3 pain signals per prospect. These are challenges, pressures, or strategic concerns this company or person likely faces
+- BEST: Pain signals backed by direct evidence from the research (a specific quote, data point, news item, or fact about the company)
+- ACCEPTABLE: Reasonable inferences drawn from what the research reveals about their business model, competitive landscape, recent moves, or role — clearly label these as "Likely based on..." or "Suggested by..."
+- NOT ACCEPTABLE: Pure generic filler with no connection to the research (e.g., "they care about growth" or "they need better tools"). Every signal must tie back to something specific about THIS company
 - Consider the company's own services: if a company PROVIDES growth consulting, "struggles with growth" is not a valid pain signal — that is their service offering, not their problem
-- Each pain signal must cite a specific fact, quote, data point, or observation from the research
+- If the research data is truly too thin for even reasonable inferences, return an empty list — zero pain signals is valid when data doesn't support any
 
 CONFIDENCE SCORING:
 - 8-10: Multiple verified sources with rich, specific data about the prospect and company

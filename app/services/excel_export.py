@@ -203,19 +203,7 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
     ws = wb.active
     ws.title = "Lead Research"
 
-    # ── Title Row ──
-    ws.merge_cells("A1:E1")
-    title_cell = ws["A1"]
-    title_cell.value = "LeadIntel — Prospect Research Report"
-    title_cell.font = FONT_TITLE
-    title_cell.alignment = Alignment(vertical="center")
-
-    ws.merge_cells("A2:E2")
-    subtitle_cell = ws["A2"]
-    subtitle_cell.value = f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  Leads: {pipeline_result.total}  |  Processed: {pipeline_result.processed}  |  Failed: {pipeline_result.failed}  |  Duration: {pipeline_result.duration_s}s"
-    subtitle_cell.font = FONT_SUBTITLE
-
-    # ── Group Header Row (Row 4) ──
+    # ── Group Header Row (Row 1) ──
     group_spans = [
         ("Lead Info", 1, 4, FILL_LEAD_INFO),
         ("LinkedIn Intel", 5, 8, FILL_LINKEDIN),
@@ -227,29 +215,29 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
 
     for label, start_col, end_col, fill in group_spans:
         if start_col == end_col:
-            cell = ws.cell(row=4, column=start_col, value=label)
+            cell = ws.cell(row=1, column=start_col, value=label)
         else:
             ws.merge_cells(
-                start_row=4, start_column=start_col,
-                end_row=4, end_column=end_col,
+                start_row=1, start_column=start_col,
+                end_row=1, end_column=end_col,
             )
-            cell = ws.cell(row=4, column=start_col, value=label)
+            cell = ws.cell(row=1, column=start_col, value=label)
         cell.font = FONT_GROUP_HEADER
         cell.fill = fill
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # ── Column Header Row (Row 5) ──
+    # ── Column Header Row (Row 2) ──
     for col_idx, (header, _, width) in enumerate(COLUMNS, start=1):
-        cell = ws.cell(row=5, column=col_idx, value=header)
+        cell = ws.cell(row=2, column=col_idx, value=header)
         cell.font = FONT_HEADER
         cell.fill = FILL_HEADER
         cell.alignment = ALIGN_HEADER
         cell.border = THIN_BORDER
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
-    # ── Data Rows (starting Row 6) ──
+    # ── Data Rows (starting Row 3) ──
     for row_offset, lead_result in enumerate(pipeline_result.results):
-        row_num = 6 + row_offset
+        row_num = 3 + row_offset
         row_data = _extract_row(lead_result)
         use_alt = row_offset % 2 == 1
         flagged = _needs_review(lead_result)
@@ -297,19 +285,19 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
                 cell.font = FONT_ERROR
 
     # ── Freeze Panes ──
-    ws.freeze_panes = "E6"
+    ws.freeze_panes = "E3"
 
     # ── Row height for data rows ──
-    for row_num in range(6, 6 + len(pipeline_result.results)):
+    for row_num in range(3, 3 + len(pipeline_result.results)):
         ws.row_dimensions[row_num].height = 80
 
-    ws.row_dimensions[4].height = 25
-    ws.row_dimensions[5].height = 30
+    ws.row_dimensions[1].height = 25
+    ws.row_dimensions[2].height = 30
 
     # ── Auto-filter ──
     last_col = get_column_letter(len(COLUMNS))
-    last_row = 5 + len(pipeline_result.results)
-    ws.auto_filter.ref = f"A5:{last_col}{last_row}"
+    last_row = 2 + len(pipeline_result.results)
+    ws.auto_filter.ref = f"A2:{last_col}{last_row}"
 
     buffer = io.BytesIO()
     wb.save(buffer)

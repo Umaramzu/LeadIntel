@@ -74,8 +74,7 @@ async def _run_and_email(
                     "subject": f"Your LeadIntel Research Report — {result.processed} Leads",
                     "html": (
                         f"<p>Hi {first_name},</p>"
-                        f"<p>Your lead research is complete! We processed <strong>{result.processed} leads</strong> "
-                        f"in {result.duration_s:.0f} seconds.</p>"
+                        f"<p>Your lead research is complete! We processed <strong>{result.processed} leads</strong>.</p>"
                         f"<p>Your Excel report is attached below. It includes company overviews, "
                         f"key insights, and actionable intelligence for each lead.</p>"
                         f"<p>Thanks for using LeadIntel!</p>"
