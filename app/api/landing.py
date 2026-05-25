@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 import httpx
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
@@ -52,13 +53,47 @@ async def _run_and_email(
         buffer = export_pipeline_results(result)
         excel_bytes = buffer.read()
 
-        # TODO (Task #47): Send email with Excel attachment
-        # For now, log that it's ready
-        logger.info(
-            f"Pipeline complete for {email}: {result.processed} leads processed, "
-            f"{result.failed} failed, {result.duration_s}s. Excel ready ({len(excel_bytes)} bytes). "
-            f"Email delivery pending."
-        )
+        # Send email with Excel attachment via Resend
+        settings = get_settings()
+        if not settings.resend_api_key:
+            logger.error(f"Resend API key not configured. Cannot email results to {email}.")
+            return
+
+        first_name = customer_name.split()[0] if customer_name else "there"
+
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {settings.resend_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": "LeadIntel <onboarding@resend.dev>",
+                    "to": [email],
+                    "subject": f"Your LeadIntel Research Report — {result.processed} Leads",
+                    "html": (
+                        f"<p>Hi {first_name},</p>"
+                        f"<p>Your lead research is complete! We processed <strong>{result.processed} leads</strong> "
+                        f"in {result.duration_s:.0f} seconds.</p>"
+                        f"<p>Your Excel report is attached below. It includes company overviews, "
+                        f"key insights, and actionable intelligence for each lead.</p>"
+                        f"<p>Thanks for using LeadIntel!</p>"
+                        f"<p>— The LeadIntel Team</p>"
+                    ),
+                    "attachments": [
+                        {
+                            "filename": "LeadIntel-Report.xlsx",
+                            "content": base64.b64encode(excel_bytes).decode(),
+                        }
+                    ],
+                },
+            )
+
+        if res.status_code in (200, 201):
+            logger.info(f"Email sent to {email}: {result.processed} leads, {len(excel_bytes)} bytes")
+        else:
+            logger.error(f"Email send failed for {email}: {res.status_code} — {res.text}")
 
     except Exception as e:
         logger.exception(f"Background pipeline failed for {email}: {e}")

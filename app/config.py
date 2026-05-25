@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # Stripe
     stripe_secret_key: str = ""
 
+    # Email (Resend)
+    resend_api_key: str = ""
+
     # Supabase
     supabase_url: str = ""
     supabase_service_key: str = ""
