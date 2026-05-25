@@ -12,13 +12,21 @@ MAX_LEADS_PER_RUN = 100
 COLUMN_ALIASES = {
     "name": "name",
     "full_name": "name",
+    "full name": "name",
     "fullname": "name",
     "contact_name": "name",
     "contact name": "name",
+    "first name": "first_name",
+    "first_name": "first_name",
+    "firstname": "first_name",
+    "last name": "last_name",
+    "last_name": "last_name",
+    "lastname": "last_name",
     "company": "company",
     "company_name": "company",
     "company name": "company",
     "organization": "company",
+    "organization name": "company",
     "email": "email",
     "email_address": "email",
     "email address": "email",
@@ -26,6 +34,11 @@ COLUMN_ALIASES = {
     "linkedin_url": "linkedin",
     "linkedin url": "linkedin",
     "linkedin_profile": "linkedin",
+    "linkedin profile": "linkedin",
+    "person linkedin url": "linkedin",
+    "person linkedin_url": "linkedin",
+    "linkedin profile url": "linkedin",
+    "profile url": "linkedin",
 }
 
 
@@ -36,6 +49,16 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         if col in COLUMN_ALIASES:
             rename_map[col] = COLUMN_ALIASES[col]
     df = df.rename(columns=rename_map)
+
+    # Merge first_name + last_name → name (if no "name" column exists)
+    if "name" not in df.columns and "first_name" in df.columns:
+        if "last_name" in df.columns:
+            df["name"] = (df["first_name"].fillna("").astype(str).str.strip()
+                          + " "
+                          + df["last_name"].fillna("").astype(str).str.strip()).str.strip()
+        else:
+            df["name"] = df["first_name"]
+
     return df
 
 
