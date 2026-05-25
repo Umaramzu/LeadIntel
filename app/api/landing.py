@@ -30,7 +30,9 @@ async def _verify_payment(payment_intent_id: str) -> dict:
 
     pi = res.json()
     if pi.get("status") != "succeeded":
-        raise HTTPException(status_code=402, detail=f"Payment not completed. Status: {pi.get('status')}")
+        raise HTTPException(
+            status_code=402, detail=f"Payment not completed. Status: {pi.get('status')}"
+        )
 
     return pi
 
@@ -56,7 +58,9 @@ async def _run_and_email(
         # Send email with Excel attachment via Resend
         settings = get_settings()
         if not settings.resend_api_key:
-            logger.error(f"Resend API key not configured. Cannot email results to {email}.")
+            logger.error(
+                f"Resend API key not configured. Cannot email results to {email}."
+            )
             return
 
         first_name = customer_name.split()[0] if customer_name else "there"
@@ -90,9 +94,13 @@ async def _run_and_email(
             )
 
         if res.status_code in (200, 201):
-            logger.info(f"Email sent to {email}: {result.processed} leads, {len(excel_bytes)} bytes")
+            logger.info(
+                f"Email sent to {email}: {result.processed} leads, {len(excel_bytes)} bytes"
+            )
         else:
-            logger.error(f"Email send failed for {email}: {res.status_code} — {res.text}")
+            logger.error(
+                f"Email send failed for {email}: {res.status_code} — {res.text}"
+            )
 
     except Exception as e:
         logger.exception(f"Background pipeline failed for {email}: {e}")
@@ -119,28 +127,39 @@ async def landing_process(
             detail=f"Lead count mismatch: paid for {paid_leads}, requested {leads_count}",
         )
 
-    # 2. Parse the uploaded file
+    # 2. Parse the uploaded file (no per-run cap — we cap by payment tier)
     try:
-        leads, skipped = await parse_upload(file)
+        leads, skipped = await parse_upload(file, enforce_cap=False)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"File parsing failed: {str(e)}")
 
     if not leads:
         raise HTTPException(status_code=400, detail="No valid leads found in file.")
 
-    # 3. Start pipeline in background
+    if len(leads) + len(skipped) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File has {len(leads) + len(skipped)} rows — maximum is 500 per file. Please split into smaller batches.",
+        )
+
+    # 3. Start pipeline in background (cap to paid_leads count)
     config = PipelineConfig(
-        search=True, extract=True, synthesize=True,
-        linkedin=False, apollo=False,
+        search=True,
+        extract=True,
+        synthesize=True,
+        linkedin=False,
+        apollo=False,
     )
 
-    asyncio.create_task(
-        _run_and_email(leads, config, email, name, paid_leads)
-    )
+    actual_to_process = min(len(leads), paid_leads)
+
+    asyncio.create_task(_run_and_email(leads, config, email, name, paid_leads))
 
     return {
         "status": "processing",
-        "leads_to_process": min(len(leads), paid_leads),
+        "total_in_file": len(leads) + len(skipped),
+        "valid_leads": len(leads),
+        "leads_to_process": actual_to_process,
         "skipped": len(skipped),
         "email": email,
     }

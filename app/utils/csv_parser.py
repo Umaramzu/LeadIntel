@@ -89,7 +89,7 @@ def _df_to_leads(df: pd.DataFrame) -> tuple[list[Lead], list[dict]]:
     return leads, skipped
 
 
-async def parse_upload(file: UploadFile) -> tuple[list[Lead], list[dict]]:
+async def parse_upload(file: UploadFile, enforce_cap: bool = True) -> tuple[list[Lead], list[dict]]:
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided.")
 
@@ -115,7 +115,7 @@ async def parse_upload(file: UploadFile) -> tuple[list[Lead], list[dict]]:
     df = _normalize_columns(df)
     _validate_required_fields(df)
 
-    if len(df) > MAX_LEADS_PER_RUN:
+    if enforce_cap and len(df) > MAX_LEADS_PER_RUN:
         raise HTTPException(
             status_code=400,
             detail=f"Too many leads ({len(df)}). Maximum is {MAX_LEADS_PER_RUN} per run. Split your file into smaller batches.",
