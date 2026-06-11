@@ -132,6 +132,9 @@ async def _process_one_lead(
                 extractions = (
                     jina_extraction["extractions"] if jina_extraction else []
                 )
+                relevant_snippets = (
+                    jina_extraction.get("relevant_results", []) if jina_extraction else []
+                )
                 synthesis = await synthesize_lead(
                     name=lead.name,
                     company=lead.company,
@@ -140,6 +143,7 @@ async def _process_one_lead(
                     serper_results=serper_results,
                     jina_extractions=extractions,
                     linkedin_data=linkedin_data,
+                    relevant_snippets=relevant_snippets,
                 )
                 result.research = synthesis["research"]
 

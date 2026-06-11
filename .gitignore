@@ -7,6 +7,7 @@ deploy.sh
 .claude/
 .vscode/
 test_leads.csv
+test_local.py
 leadintel_research.xlsx
 test_leads_research.xlsx
 test-linkedIn-profiles.xlsx

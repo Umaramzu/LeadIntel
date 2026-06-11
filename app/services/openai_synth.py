@@ -42,19 +42,32 @@ RULES:
 - Ignore any research content that is clearly about a different person or company
 - Be specific — tailor every insight to THIS prospect's actual industry, role, and situation
 - Generic filler like "they care about growth" or "they value innovation" is useless — tie every point to concrete evidence
+- EVIDENCE INTEGRITY: When citing evidence, ONLY name sources (websites, platforms, publications) that explicitly appear in the search results or extracted content provided. Never name a review platform, news outlet, or data source that isn't in the data — citing a source you didn't see is fabrication
 
 COMPANY SNAPSHOT:
 - "what_they_do" should be 2-3 sentences: what they do + who they serve + how they deliver value. Not a tagline — real detail from the research
+- Look for sub-brands, subsidiaries, or related brands mentioned in the research (e.g., "Company X also operates Brand Y and Brand Z"). Include these in what_they_do if found
 - "industry" must be specific: "Healthcare Revenue Cycle Management" not just "Healthcare", "E-commerce Fulfillment" not just "Logistics"
 - "key_offerings" should list their actual products/services found in the research — not generic capabilities. If their website lists specific service names or product tiers, use those
+- Capture differentiators — if reviews or content mention unique selling points (e.g., "no-deposit tenancy", "same-day delivery", "free guarantor service"), include those as offerings, not just generic service categories
 
 PAIN SIGNALS:
-- Aim for 2-3 pain signals per prospect. These are challenges, pressures, or strategic concerns this company or person likely faces
-- BEST: Pain signals backed by direct evidence from the research (a specific quote, data point, news item, or fact about the company)
-- ACCEPTABLE: Reasonable inferences drawn from what the research reveals about their business model, competitive landscape, recent moves, or role — clearly label these as "Likely based on..." or "Suggested by..."
-- NOT ACCEPTABLE: Pure generic filler with no connection to the research (e.g., "they care about growth" or "they need better tools"). Every signal must tie back to something specific about THIS company
-- Consider the company's own services: if a company PROVIDES growth consulting, "struggles with growth" is not a valid pain signal — that is their service offering, not their problem
-- If the research data is truly too thin for even reasonable inferences, return an empty list — zero pain signals is valid when data doesn't support any
+- Aim for 2-3 pain signals per prospect. These are real challenges, pressures, or problems this company or person faces
+- EVIDENCE HIERARCHY — follow this priority strictly:
+  1. CONCRETE EVIDENCE (strongest): Customer/tenant/client complaints, negative reviews on consumer platforms (Trustpilot, Google Reviews, Yell, allAgents, WhichPad, G2, etc.), regulatory actions, reported incidents, public disputes. These reflect real problems the company faces in DELIVERING their service. Quote or cite the specific source in the evidence field
+  2. NEWS-BASED EVIDENCE: Recent layoffs, funding rounds implying cash burn, lawsuits, market exits, product recalls, leadership changes, regulatory changes affecting their industry — specific events that indicate challenges. Cite the news item
+  3. REASONABLE INFERENCE (weakest): Inferences from business model, competitive landscape, or industry trends. ALWAYS prefix the evidence field with "Likely based on..." or "Inferred from..."
+- EMPLOYEE REVIEWS ARE NOT CATEGORY 1: Reviews on Indeed, Glassdoor, etc. about internal working conditions (long hours, poor management, lack of career progression, office politics) are internal HR matters. Do NOT use them as pain signals unless they reveal a direct business impact (e.g., "high staff turnover cited in news as causing service failures"). A sales rep saying "I saw your employees complain about hours on Indeed" is offensive, not insightful
+- If you only have category 3 inferences with no concrete or news-based evidence, limit to 1 pain signal MAX and flag the gap in data_gaps
+- PRODUCT-AS-PAIN TRAP (critical): If a company PROVIDES a service, that is NOT their pain signal — it is their strength. Examples:
+  • Company sells cybersecurity software → do NOT say "cybersecurity challenges" is their pain
+  • Company provides growth consulting → do NOT say they "struggle with growth"
+  • Company offers property management → do NOT say "property management complexity" is their pain
+  Instead, look for what makes DELIVERING that service hard: tenant complaints, scaling issues, staff turnover, regulatory pressure, competitive threats
+- NOT ACCEPTABLE: Generic filler disconnected from the research ("they care about growth", "they need better tools", "scaling challenges"). Every signal must reference something specific from the research about THIS company
+- BUSINESS RELEVANCE: Pain signals must be useful in a B2B sales conversation. Internal HR complaints (long working hours, poor management, lack of career progression, office politics) are NOT actionable — a sales rep cannot open with "I heard your employees complain about hours." Focus on business-level challenges: customer/tenant complaints, regulatory pressure, market competition, operational scaling, technology gaps, financial pressures, reputation risks
+- A sales rep will use these pain signals to open a conversation. A WRONG pain signal is worse than no pain signal — it destroys credibility instantly. When in doubt, return fewer signals or an empty list
+- Zero pain signals is ALWAYS better than fabricated ones
 
 CONFIDENCE SCORING:
 - 8-10: Multiple verified sources with rich, specific data about the prospect and company
@@ -156,19 +169,36 @@ async def synthesize_lead(
     serper_results: dict,
     jina_extractions: list[dict],
     linkedin_data: dict | None = None,
+    relevant_snippets: list[dict] | None = None,
 ) -> dict:
     """Send all research data to OpenAI and get structured prospect profile."""
     settings = get_settings()
     if not settings.openai_api_key:
         raise ValueError("OPENAI_API_KEY not set in environment.")
 
-    # Build snippets list from serper results
-    serper_snippets = []
-    for query_key, query_data in serper_results.items():
-        serper_snippets.append({
-            "source_query": query_key,
-            "results": query_data.get("results", []),
-        })
+    # Use relevance-filtered snippets when available (strips wrong-company results).
+    # Falls back to raw serper results for backwards compatibility.
+    if relevant_snippets:
+        snippets_by_query: dict[str, list] = {}
+        for r in relevant_snippets:
+            key = r["source_query"]
+            if key not in snippets_by_query:
+                snippets_by_query[key] = []
+            snippets_by_query[key].append({
+                "title": r.get("title", ""),
+                "snippet": r.get("snippet", ""),
+            })
+        serper_snippets = [
+            {"source_query": key, "results": results}
+            for key, results in snippets_by_query.items()
+        ]
+    else:
+        serper_snippets = []
+        for query_key, query_data in serper_results.items():
+            serper_snippets.append({
+                "source_query": query_key,
+                "results": query_data.get("results", []),
+            })
 
     user_prompt = _build_user_prompt(
         name, company, email, linkedin, serper_snippets, jina_extractions,

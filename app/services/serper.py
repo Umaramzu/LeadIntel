@@ -9,6 +9,7 @@ def _build_queries(name: str, company: str) -> list[dict]:
         {"label": "company_services", "q": f"{company} services about"},
         {"label": "company_news", "q": f"{company} recent news funding"},
         {"label": "person_background", "q": f"{name} {company} role background"},
+        {"label": "company_reviews", "q": f"{company} reviews complaints ratings"},
     ]
 
 

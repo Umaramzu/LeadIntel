@@ -1,9 +1,61 @@
 import asyncio
 import httpx
+from urllib.parse import urlparse
 from app.config import get_settings
 
 JINA_READER_URL = "https://r.jina.ai"
 MAX_CONTENT_LENGTH = 5000  # chars per URL — keeps token usage reasonable
+
+# Domains that waste extraction slots — social media (login-walled),
+# lead scraper aggregators (shallow mirrored data)
+LOW_VALUE_DOMAINS = {
+    "facebook.com", "instagram.com", "twitter.com", "x.com",
+    "tiktok.com", "pinterest.com",
+    "zoominfo.com", "rocketreach.co", "prospeo.io", "lusha.com",
+    "signalhire.com", "leadiq.com", "apollo.io",
+}
+
+
+COMPANY_SUFFIXES = {
+    "ltd", "limited", "inc", "incorporated", "llc", "plc",
+    "corp", "corporation", "co", "company", "group", "holdings",
+}
+
+GENERIC_BUSINESS_WORDS = {
+    "services", "solutions", "consulting", "management", "partners",
+    "associates", "global", "international", "digital", "tech",
+    "technology", "systems", "ventures", "enterprises", "capital",
+    "residential", "commercial", "property", "properties", "estate",
+    "real", "exchange", "housing", "homes", "living", "national",
+    "professional", "general", "first", "united", "modern", "premier",
+    "advanced", "strategic", "creative", "smart", "innovative",
+}
+
+
+def _is_company_match(company_lower: str, text: str) -> bool:
+    """Two-tier company name matching to prevent false positives on generic words.
+
+    Tier 1: Full company name (minus suffixes) appears as phrase → definitive
+    Tier 2: Any distinctive (non-generic) word from name appears → match
+    Tier 3: ALL generic words co-occur (min 2 required) → match
+    """
+    core_parts = [
+        p for p in company_lower.split()
+        if p not in COMPANY_SUFFIXES and len(p) > 2
+    ]
+    core_name = " ".join(core_parts)
+
+    if core_name and core_name in text:
+        return True
+
+    distinctive = [p for p in core_parts if p not in GENERIC_BUSINESS_WORDS]
+    if distinctive and any(p in text for p in distinctive):
+        return True
+
+    if not distinctive and len(core_parts) >= 2 and all(p in text for p in core_parts):
+        return True
+
+    return False
 
 
 def filter_relevant_results(
@@ -11,13 +63,15 @@ def filter_relevant_results(
 ) -> list[dict]:
     """Pre-filter: only keep search results where the snippet or title
     mentions the company or person name. Drops obvious noise before
-    we spend Jina tokens extracting content."""
+    we spend Jina tokens extracting content.
+
+    Uses two-tier company matching to prevent false positives when
+    company names contain only generic business words (e.g., "Exchange
+    Residential" would previously match any text containing "exchange").
+    """
     name_lower = name.lower()
     company_lower = company.lower()
-
-    # Also check individual name parts (first/last) and company words
     name_parts = [p for p in name_lower.split() if len(p) > 2]
-    company_parts = [p for p in company_lower.split() if len(p) > 2]
 
     relevant = []
     seen_urls = set()
@@ -28,14 +82,15 @@ def filter_relevant_results(
             if not url or url in seen_urls:
                 continue
 
+            netloc = urlparse(url).netloc.lower()
+            if any(d in netloc for d in LOW_VALUE_DOMAINS):
+                continue
+
             title = result.get("title", "").lower()
             snippet = result.get("snippet", "").lower()
             text = f"{title} {snippet}"
 
-            # Check if company or person name (or parts) appear in the result
-            company_match = company_lower in text or any(
-                p in text for p in company_parts
-            )
+            company_match = _is_company_match(company_lower, text)
             name_match = name_lower in text or any(
                 p in text for p in name_parts
             )
@@ -143,12 +198,31 @@ async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict
         }
 
 
+def _is_useful_content(title: str, content: str) -> bool:
+    """Detect auth walls, bot challenges, and empty pages after extraction."""
+    title_lower = (title or "").lower()
+    content_stripped = (content or "").strip()
+
+    if "sign up | linkedin" in title_lower or "join linkedin" in title_lower:
+        return False
+    if "just a moment" in title_lower or "verifying connection" in title_lower:
+        return False
+    if "security verification" == content_stripped.lower():
+        return False
+    if len(content_stripped) < 150:
+        return False
+    return True
+
+
 async def extract_lead_content(
-    serper_results: dict, name: str, company: str, max_extractions: int = 5
+    serper_results: dict, name: str, company: str, max_extractions: int = 7
 ) -> dict:
     """Full pipeline: pre-filter Serper results → extract top N via Jina Reader.
 
-    Extractions run concurrently for speed (vs sequential ~58s → ~12s).
+    Extractions run concurrently for speed. URL selection enforces:
+    1. Source diversity — at least 1 URL from each Serper query source
+    2. Domain diversity — max 1 URL per domain (7 slots = 7 unique sources)
+    3. Low-value domains already filtered out in filter_relevant_results
     """
     settings = get_settings()
     if not settings.jina_api_key:
@@ -161,15 +235,36 @@ async def extract_lead_content(
             if result.get("link"):
                 all_urls.append(result["link"])
 
-    # Pre-filter for relevance
+    # Pre-filter for relevance (also drops low-value domains)
     relevant = filter_relevant_results(serper_results, name, company)
 
     # Track what got filtered out (for debugging)
     relevant_urls = {r["url"] for r in relevant}
     filtered_out = [u for u in all_urls if u not in relevant_urls]
 
-    # Extract top N relevant URLs — concurrently
-    urls_to_extract = relevant[:max_extractions]
+    # Phase 1: Diversity guarantee — 1 URL from each query source, 1 per domain
+    urls_to_extract = []
+    seen_urls = set()
+    seen_domains = set()
+    for source_key in serper_results.keys():
+        for r in relevant:
+            if r["source_query"] == source_key and r["url"] not in seen_urls:
+                domain = urlparse(r["url"]).netloc.lower()
+                if domain not in seen_domains:
+                    urls_to_extract.append(r)
+                    seen_urls.add(r["url"])
+                    seen_domains.add(domain)
+                    break
+
+    # Phase 2: Fill remaining slots — 1 per domain, relevance order
+    for r in relevant:
+        if len(urls_to_extract) >= max_extractions:
+            break
+        domain = urlparse(r["url"]).netloc.lower()
+        if r["url"] not in seen_urls and domain not in seen_domains:
+            urls_to_extract.append(r)
+            seen_urls.add(r["url"])
+            seen_domains.add(domain)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         tasks = [
@@ -178,16 +273,21 @@ async def extract_lead_content(
         ]
         results = await asyncio.gather(*tasks)
 
-    # Attach source metadata and count failures
+    # Attach source metadata, filter junk content, count failures
     extractions = []
     failed = 0
     for i, result in enumerate(results):
         if result["error"]:
             failed += 1
+            extractions.append(result)
+        elif not _is_useful_content(result.get("title", ""), result.get("content", "")):
+            failed += 1
+            result["error"] = "Low-quality content (auth wall / bot check)"
+            extractions.append(result)
         else:
             result["source_query"] = urls_to_extract[i]["source_query"]
             result["snippet"] = urls_to_extract[i]["snippet"]
-        extractions.append(result)
+            extractions.append(result)
 
     return {
         "total_urls_found": len(all_urls),
@@ -196,4 +296,5 @@ async def extract_lead_content(
         "failed": failed,
         "filtered_out": filtered_out,
         "extractions": extractions,
+        "relevant_results": relevant,
     }
