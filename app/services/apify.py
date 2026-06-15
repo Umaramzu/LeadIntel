@@ -116,7 +116,7 @@ def _extract_posts(raw_items: list[dict]) -> list[dict]:
         media = raw.get("media") or {}
 
         posts.append({
-            "text": text[:1000],
+            "text": text,
             "date": posted_at.get("date", ""),
             "relative_date": posted_at.get("relative", ""),
             "post_type": raw.get("post_type", ""),

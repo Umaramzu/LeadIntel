@@ -56,8 +56,8 @@ COLUMNS = [
     # LinkedIn Intel (5-8) — populated when Apify LinkedIn scraping is enabled
     ("Headline", FILL_LINKEDIN, 35),
     ("About", FILL_LINKEDIN, 45),
-    ("Top Posts", FILL_LINKEDIN, 50),
-    ("Post Engagement", FILL_LINKEDIN, 25),
+    ("Skills", FILL_LINKEDIN, 35),
+    ("LinkedIn Posts", FILL_LINKEDIN, 65),
     # Company Snapshot (9-12)
     ("What They Do", FILL_COMPANY, 45),
     ("Industry", FILL_COMPANY, 25),
@@ -116,34 +116,31 @@ def _needs_review(lead_result) -> bool:
 
 
 def _extract_linkedin_cells(lead_result) -> list:
-    """Extract LinkedIn columns from lead result. Returns 4 cells."""
+    """Extract LinkedIn columns from lead result. Returns 4 cells:
+    [headline, about, skills, posts_with_engagement]"""
     li = lead_result.linkedin_data or {}
     profile = li.get("profile", {})
     posts = li.get("posts", [])
 
     headline = profile.get("headline", "")
     about = profile.get("about", "")
-    if about and len(about) > 300:
-        about = about[:297] + "..."
 
-    # Summarize top posts (up to 3)
-    post_lines = []
-    for p in posts[:3]:
-        text = p.get("text", "")[:150]
-        reactions = p.get("total_reactions", 0)
+    skills = ", ".join(profile.get("skills", []))
+
+    post_blocks = []
+    for i, p in enumerate(posts[:5], 1):
         date = p.get("relative_date", p.get("date", ""))
-        post_lines.append(f"[{date}] ({reactions} reactions) {text}")
-    top_posts = "\n\n".join(post_lines)
+        reactions = p.get("total_reactions", 0)
+        comments = p.get("comments", 0)
+        reposts = p.get("reposts", 0)
+        text = p.get("text", "")
 
-    # Aggregate engagement
-    if posts:
-        total_reactions = sum(p.get("total_reactions", 0) for p in posts)
-        total_comments = sum(p.get("comments", 0) for p in posts)
-        engagement = f"{len(posts)} posts | {total_reactions} reactions | {total_comments} comments"
-    else:
-        engagement = ""
+        header = f"[Post {i} — {date} | {reactions} reactions, {comments} comments, {reposts} reposts]"
+        post_blocks.append(f"{header}\n{text}")
 
-    return [headline, about, top_posts, engagement]
+    posts_cell = "\n\n———\n\n".join(post_blocks)
+
+    return [headline, about, skills, posts_cell]
 
 
 def _extract_row(lead_result) -> list:
@@ -289,7 +286,7 @@ def export_pipeline_results(pipeline_result: PipelineResult) -> io.BytesIO:
 
     # ── Row height for data rows ──
     for row_num in range(3, 3 + len(pipeline_result.results)):
-        ws.row_dimensions[row_num].height = 80
+        ws.row_dimensions[row_num].height = 150
 
     ws.row_dimensions[1].height = 25
     ws.row_dimensions[2].height = 30
