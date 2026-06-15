@@ -97,36 +97,45 @@ async def _process_one_lead(
                     ),
                     "queries": list(serper_results.keys()),
                 }
+                logger.info(f"[{lead.name}] Serper done: {result.serper['total_results']} results across {result.serper['queries']}")
 
             # Step 2: Jina extraction (requires Serper results)
+            logger.info(f"[{lead.name}] Jina check: extract={config.extract}, serper_truthy={bool(serper_results)}")
             if config.extract and serper_results:
-                jina_extraction = await extract_lead_content(
-                    serper_results, lead.name, lead.company
-                )
-                result.jina = {
-                    "total_urls_found": jina_extraction["total_urls_found"],
-                    "relevant_urls": jina_extraction["relevant_urls"],
-                    "extracted": jina_extraction["extracted"],
-                    "failed": jina_extraction["failed"],
-                }
-                seen_domains = set()
-                for e in jina_extraction["extractions"]:
-                    if e.get("error") or not e.get("url"):
-                        continue
-                    domain = urlparse(e["url"]).netloc
-                    if domain not in seen_domains:
-                        seen_domains.add(domain)
-                        result.source_urls.append(e["url"])
-                    if len(result.source_urls) >= 2:
-                        break
+                try:
+                    jina_extraction = await extract_lead_content(
+                        serper_results, lead.name, lead.company
+                    )
+                    result.jina = {
+                        "total_urls_found": jina_extraction["total_urls_found"],
+                        "relevant_urls": jina_extraction["relevant_urls"],
+                        "extracted": jina_extraction["extracted"],
+                        "failed": jina_extraction["failed"],
+                    }
+                    logger.info(f"[{lead.name}] Jina done: extracted={jina_extraction['extracted']}, failed={jina_extraction['failed']}, total_urls={jina_extraction['total_urls_found']}")
+                    seen_domains = set()
+                    for e in jina_extraction["extractions"]:
+                        if e.get("error") or not e.get("url"):
+                            continue
+                        domain = urlparse(e["url"]).netloc
+                        if domain not in seen_domains:
+                            seen_domains.add(domain)
+                            result.source_urls.append(e["url"])
+                        if len(result.source_urls) >= 2:
+                            break
+                except Exception as jina_err:
+                    logger.error(f"[{lead.name}] Jina FAILED: {type(jina_err).__name__}: {jina_err}")
+            else:
+                logger.warning(f"[{lead.name}] Jina SKIPPED: extract={config.extract}, serper_results={type(serper_results)}")
 
             # Step 3: LinkedIn scraping via Apify (optional, requires LinkedIn URL)
             if config.linkedin and lead.linkedin:
                 try:
                     linkedin_data = await scrape_linkedin(lead.linkedin)
                     result.linkedin_data = linkedin_data
-                except Exception:
-                    pass
+                    logger.info(f"[{lead.name}] LinkedIn done: profile={'yes' if linkedin_data.get('profile') else 'no'}, posts={len(linkedin_data.get('posts', []))}")
+                except Exception as li_err:
+                    logger.error(f"[{lead.name}] LinkedIn FAILED: {type(li_err).__name__}: {li_err}")
 
             # Step 4: OpenAI synthesis (requires Serper results + Jina extractions)
             if config.synthesize and serper_results:
