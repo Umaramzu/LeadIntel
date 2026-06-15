@@ -113,6 +113,9 @@ async def _process_one_lead(
                         "failed": jina_extraction["failed"],
                     }
                     logger.info(f"[{lead.name}] Jina done: extracted={jina_extraction['extracted']}, failed={jina_extraction['failed']}, total_urls={jina_extraction['total_urls_found']}")
+                    for ext in jina_extraction["extractions"]:
+                        err = ext.get("error") or "OK"
+                        logger.info(f"[{lead.name}]   -> {ext.get('url', '?')[:80]} | {err}")
                     seen_domains = set()
                     for e in jina_extraction["extractions"]:
                         if e.get("error") or not e.get("url"):
