@@ -147,7 +147,7 @@ async def landing_process(
         search=True,
         extract=True,
         synthesize=True,
-        linkedin=False,
+        linkedin=True,
         apollo=False,
     )
 

@@ -19,7 +19,7 @@ class Lead(BaseModel):
 
 class PipelineConfig(BaseModel):
     apollo: bool = False
-    linkedin: bool = False
+    linkedin: bool = True
     search: bool = True
     extract: bool = True
     synthesize: bool = True

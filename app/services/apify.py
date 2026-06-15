@@ -7,7 +7,6 @@ POSTS_ACTOR_ID = "apimaestro~linkedin-batch-profile-posts-scraper"
 
 APIFY_BASE = "https://api.apify.com/v2"
 POLL_INTERVAL = 3
-MAX_POLL_SECONDS = 120
 
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"}
 
@@ -37,7 +36,8 @@ async def _run_actor(actor_id: str, input_data: dict) -> list[dict]:
 
         # Poll if not finished within waitForFinish window
         elapsed = 0
-        while status not in TERMINAL_STATUSES and elapsed < MAX_POLL_SECONDS:
+        max_poll = settings.apify_max_poll_seconds
+        while status not in TERMINAL_STATUSES and elapsed < max_poll:
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
             poll_resp = await client.get(
@@ -63,25 +63,27 @@ async def _run_actor(actor_id: str, input_data: dict) -> list[dict]:
 def _extract_profile(raw: dict) -> dict:
     """Extract the fields we care about from a raw profile scraper result."""
     experiences = []
-    for i in range(4):
-        prefix = f"experiences/{i}"
-        title = raw.get(f"{prefix}/title")
-        company = raw.get(f"{prefix}/companyName")
+    for exp in (raw.get("experiences") or [])[:4]:
+        if not isinstance(exp, dict):
+            continue
+        title = exp.get("title")
+        company = exp.get("companyName")
         if title and company:
             experiences.append({
                 "title": title,
                 "company": company,
-                "industry": raw.get(f"{prefix}/companyIndustry", ""),
-                "started": raw.get(f"{prefix}/jobStartedOn", ""),
-                "ended": raw.get(f"{prefix}/jobEndedOn", ""),
-                "still_working": raw.get(f"{prefix}/jobStillWorking", False),
-                "location": raw.get(f"{prefix}/jobLocation", ""),
+                "industry": exp.get("companyIndustry", ""),
+                "started": exp.get("jobStartedOn", ""),
+                "ended": exp.get("jobEndedOn", ""),
+                "still_working": exp.get("jobStillWorking", False),
+                "location": exp.get("jobLocation", ""),
             })
 
     skills = []
-    for i in range(20):
-        s = raw.get(f"skills/{i}/title")
-        if s:
+    for s in (raw.get("skills") or [])[:20]:
+        if isinstance(s, dict) and s.get("title"):
+            skills.append(s["title"])
+        elif isinstance(s, str) and s:
             skills.append(s)
 
     return {
@@ -96,8 +98,6 @@ def _extract_profile(raw: dict) -> dict:
         "location": raw.get("addressWithCountry", ""),
         "email": raw.get("email", ""),
         "total_experience_years": raw.get("totalExperienceYears", 0),
-        "is_creator": raw.get("isCreator", False),
-        "is_premium": raw.get("isPremium", False),
         "experiences": experiences,
         "skills": skills,
     }
@@ -110,16 +110,21 @@ def _extract_posts(raw_items: list[dict]) -> list[dict]:
         text = raw.get("text", "")
         if not text:
             continue
+
+        posted_at = raw.get("posted_at") or {}
+        stats = raw.get("stats") or {}
+        media = raw.get("media") or {}
+
         posts.append({
             "text": text[:1000],
-            "date": raw.get("posted_at/date", ""),
-            "relative_date": raw.get("posted_at/relative", ""),
+            "date": posted_at.get("date", ""),
+            "relative_date": posted_at.get("relative", ""),
             "post_type": raw.get("post_type", ""),
-            "media_type": raw.get("media/type", ""),
-            "likes": _safe_int(raw.get("stats/like")),
-            "comments": _safe_int(raw.get("stats/comments")),
-            "reposts": _safe_int(raw.get("stats/reposts")),
-            "total_reactions": _safe_int(raw.get("stats/total_reactions")),
+            "media_type": media.get("type", ""),
+            "likes": _safe_int(stats.get("like")),
+            "comments": _safe_int(stats.get("comments")),
+            "reposts": _safe_int(stats.get("reposts")),
+            "total_reactions": _safe_int(stats.get("total_reactions")),
             "url": raw.get("url", ""),
         })
     return posts
@@ -145,7 +150,7 @@ async def scrape_linkedin_profile(linkedin_url: str) -> dict:
 async def scrape_linkedin_posts(linkedin_url: str) -> list[dict]:
     """Scrape recent posts from a LinkedIn profile. Returns list of post dicts."""
     raw_items = await _run_actor(POSTS_ACTOR_ID, {
-        "profileUrls": [linkedin_url],
+        "usernames": [linkedin_url],
     })
     return _extract_posts(raw_items)
 

@@ -10,7 +10,8 @@ from app.services.jina import extract_lead_content
 from app.services.openai_synth import synthesize_lead
 from app.services.apify import scrape_linkedin
 
-MAX_CONCURRENCY = 5
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -178,7 +179,7 @@ async def run_pipeline(
         config = PipelineConfig()
 
     pipeline_start = time.monotonic()
-    semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+    semaphore = asyncio.Semaphore(get_settings().pipeline_max_concurrency)
 
     tasks = [
         _process_one_lead(

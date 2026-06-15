@@ -156,7 +156,7 @@ async def process_leads(
     extract: bool = Query(True, description="Run Jina content extraction"),
     synthesize: bool = Query(True, description="Run OpenAI research synthesis"),
     apollo: bool = Query(False, description="Run Apollo enrichment"),
-    linkedin: bool = Query(False, description="Run Apify LinkedIn scraping (profile + posts)"),
+    linkedin: bool = Query(True, description="Run Apify LinkedIn scraping (profile + posts)"),
     user_id: str | None = Depends(get_current_user),
 ):
     """End-to-end: upload CSV → pipeline → download Excel report."""
@@ -212,7 +212,7 @@ async def process_leads_json(
     extract: bool = Query(True),
     synthesize: bool = Query(True),
     apollo: bool = Query(False),
-    linkedin: bool = Query(False),
+    linkedin: bool = Query(True),
     user_id: str | None = Depends(get_current_user),
 ):
     """Same as /process but returns JSON instead of Excel. Useful for integrations."""
@@ -289,7 +289,7 @@ async def start_processing(
     extract: bool = Query(True),
     synthesize: bool = Query(True),
     apollo: bool = Query(False),
-    linkedin: bool = Query(False),
+    linkedin: bool = Query(True),
     user_id: str | None = Depends(get_current_user),
 ):
     """Start pipeline asynchronously. Returns job_id immediately, processes in background."""

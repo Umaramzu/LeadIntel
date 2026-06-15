@@ -13,7 +13,7 @@ def _build_queries(name: str, company: str) -> list[dict]:
     ]
 
 
-async def search_lead(name: str, company: str, num_results: int = 5) -> dict:
+async def search_lead(name: str, company: str) -> dict:
     settings = get_settings()
     if not settings.serper_api_key:
         raise ValueError("SERPER_API_KEY not set in environment.")
@@ -28,7 +28,7 @@ async def search_lead(name: str, company: str, num_results: int = 5) -> dict:
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         for query_info in queries:
-            payload = {"q": query_info["q"], "num": num_results}
+            payload = {"q": query_info["q"], "num": settings.serper_results_per_query}
             try:
                 resp = await client.post(SERPER_URL, json=payload, headers=headers)
                 resp.raise_for_status()

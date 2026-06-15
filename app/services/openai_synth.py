@@ -124,11 +124,13 @@ def _build_user_prompt(
                     status = "current" if exp.get("still_working") else f"ended {exp.get('ended', '?')}"
                     parts.append(f"  • {exp['title']} at {exp['company']} (started {exp.get('started', '?')}, {status})")
             if profile.get("skills"):
-                parts.append(f"Skills: {', '.join(profile['skills'][:10])}")
+                settings = get_settings()
+                parts.append(f"Skills: {', '.join(profile['skills'][:settings.linkedin_max_skills_for_ai])}")
 
         if posts:
+            settings = get_settings()
             parts.append("\n--- LINKEDIN POSTS (recent activity) ---")
-            for i, post in enumerate(posts[:5], 1):
+            for i, post in enumerate(posts[:settings.linkedin_max_posts_for_ai], 1):
                 parts.append(f"\nPost {i} ({post.get('relative_date', post.get('date', ''))}):")
                 parts.append(f"  Text: {post['text'][:500]}")
                 parts.append(f"  Engagement: {post.get('total_reactions', 0)} reactions, {post.get('comments', 0)} comments, {post.get('reposts', 0)} reposts")
@@ -214,7 +216,7 @@ async def synthesize_lead(
             {"role": "user", "content": user_prompt},
         ],
         response_format=ProspectResearch,
-        temperature=0.3,
+        temperature=settings.openai_temperature,
     )
 
     result = response.choices[0].message.parsed

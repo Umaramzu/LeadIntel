@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 from app.config import get_settings
 
 JINA_READER_URL = "https://r.jina.ai"
-MAX_CONTENT_LENGTH = 5000  # chars per URL — keeps token usage reasonable
 
 # Domains that waste extraction slots — social media (login-walled),
 # lead scraper aggregators (shallow mirrored data)
@@ -167,8 +166,9 @@ async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict
         parsed = _parse_jina_response(resp)
         content = parsed["content"]
 
-        if len(content) > MAX_CONTENT_LENGTH:
-            content = content[:MAX_CONTENT_LENGTH] + "\n\n[...truncated]"
+        max_len = get_settings().jina_max_content_length
+        if len(content) > max_len:
+            content = content[:max_len] + "\n\n[...truncated]"
 
         return {
             "url": url,
@@ -215,7 +215,7 @@ def _is_useful_content(title: str, content: str) -> bool:
 
 
 async def extract_lead_content(
-    serper_results: dict, name: str, company: str, max_extractions: int = 7
+    serper_results: dict, name: str, company: str
 ) -> dict:
     """Full pipeline: pre-filter Serper results → extract top N via Jina Reader.
 
@@ -227,6 +227,8 @@ async def extract_lead_content(
     settings = get_settings()
     if not settings.jina_api_key:
         raise ValueError("JINA_API_KEY not set in environment.")
+
+    max_extractions = settings.max_jina_extractions
 
     # Count total URLs across all queries
     all_urls = []
