@@ -1,7 +1,10 @@
 import asyncio
+import logging
 import httpx
 from urllib.parse import urlparse
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 JINA_READER_URL = "https://r.jina.ai"
 
@@ -165,6 +168,9 @@ async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict
 
         parsed = _parse_jina_response(resp)
         content = parsed["content"]
+        logger.info(f"[jina] {url[:80]} | status={resp.status_code} | raw_len={len(resp.text)} | content_len={len(content)} | title={parsed['title'][:100]}")
+        if len(content.strip()) < 200:
+            logger.info(f"[jina] {url[:80]} | SHORT CONTENT: {content.strip()[:200]!r}")
 
         max_len = get_settings().jina_max_content_length
         if len(content) > max_len:
@@ -284,7 +290,20 @@ async def extract_lead_content(
             extractions.append(result)
         elif not _is_useful_content(result.get("title", ""), result.get("content", "")):
             failed += 1
-            result["error"] = "Low-quality content (auth wall / bot check)"
+            title_l = (result.get("title") or "").lower()
+            content_s = (result.get("content") or "").strip()
+            if "sign up | linkedin" in title_l or "join linkedin" in title_l:
+                reason = f"LinkedIn auth wall (title={title_l[:60]})"
+            elif "just a moment" in title_l or "verifying connection" in title_l:
+                reason = f"Cloudflare/bot check (title={title_l[:60]})"
+            elif "security verification" == content_s.lower():
+                reason = "Security verification page"
+            elif len(content_s) < 150:
+                reason = f"Content too short ({len(content_s)} chars)"
+            else:
+                reason = "Unknown filter"
+            logger.info(f"[jina] REJECTED {result.get('url', '?')[:80]} | {reason}")
+            result["error"] = reason
             extractions.append(result)
         else:
             result["source_query"] = urls_to_extract[i]["source_query"]
