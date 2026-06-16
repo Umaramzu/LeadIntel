@@ -185,6 +185,7 @@ async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict
             "error": None,
         }
     except httpx.HTTPStatusError as e:
+        logger.error(f"[jina] {url[:80]} | HTTP ERROR: {e.response.status_code}")
         return {
             "url": url,
             "title": "",
@@ -194,13 +195,15 @@ async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict
             "error": f"HTTP {e.response.status_code}",
         }
     except (httpx.RequestError, Exception) as e:
+        err_msg = str(e)[:200] or f"{type(e).__name__} (no message)"
+        logger.error(f"[jina] {url[:80]} | EXCEPTION: {type(e).__name__}: {repr(e)[:300]}")
         return {
             "url": url,
             "title": "",
             "content": "",
             "description": "",
             "tokens": 0,
-            "error": str(e)[:200],
+            "error": err_msg,
         }
 
 
