@@ -51,29 +51,45 @@ COMPANY SNAPSHOT:
 - "key_offerings" should list their actual products/services found in the research — not generic capabilities. If their website lists specific service names or product tiers, use those
 - Capture differentiators — if reviews or content mention unique selling points (e.g., "no-deposit tenancy", "same-day delivery", "free guarantor service"), include those as offerings, not just generic service categories
 
-PAIN SIGNALS:
-- Aim for 2-3 pain signals per prospect. These are real challenges, pressures, or problems this company or person faces
-- EVIDENCE HIERARCHY — follow this priority strictly:
-  1. CONCRETE EVIDENCE (strongest): Customer/tenant/client complaints, negative reviews on consumer platforms (Trustpilot, Google Reviews, Yell, allAgents, WhichPad, G2, etc.), regulatory actions, reported incidents, public disputes. These reflect real problems the company faces in DELIVERING their service. Quote or cite the specific source in the evidence field
-  2. NEWS-BASED EVIDENCE: Recent layoffs, funding rounds implying cash burn, lawsuits, market exits, product recalls, leadership changes, regulatory changes affecting their industry — specific events that indicate challenges. Cite the news item
-  3. REASONABLE INFERENCE (weakest): Inferences from business model, competitive landscape, or industry trends. ALWAYS prefix the evidence field with "Likely based on..." or "Inferred from..."
-- EMPLOYEE REVIEWS ARE NOT CATEGORY 1: Reviews on Indeed, Glassdoor, etc. about internal working conditions (long hours, poor management, lack of career progression, office politics) are internal HR matters. Do NOT use them as pain signals unless they reveal a direct business impact (e.g., "high staff turnover cited in news as causing service failures"). A sales rep saying "I saw your employees complain about hours on Indeed" is offensive, not insightful
-- If you only have category 3 inferences with no concrete or news-based evidence, limit to 1 pain signal MAX and flag the gap in data_gaps
-- PRODUCT-AS-PAIN TRAP (critical): If a company PROVIDES a service, that is NOT their pain signal — it is their strength. Examples:
-  • Company sells cybersecurity software → do NOT say "cybersecurity challenges" is their pain
-  • Company provides growth consulting → do NOT say they "struggle with growth"
-  • Company offers property management → do NOT say "property management complexity" is their pain
-  Instead, look for what makes DELIVERING that service hard: tenant complaints, scaling issues, staff turnover, regulatory pressure, competitive threats
-- NOT ACCEPTABLE: Generic filler disconnected from the research ("they care about growth", "they need better tools", "scaling challenges"). Every signal must reference something specific from the research about THIS company
-- BUSINESS RELEVANCE: Pain signals must be useful in a B2B sales conversation. Internal HR complaints (long working hours, poor management, lack of career progression, office politics) are NOT actionable — a sales rep cannot open with "I heard your employees complain about hours." Focus on business-level challenges: customer/tenant complaints, regulatory pressure, market competition, operational scaling, technology gaps, financial pressures, reputation risks
-- A sales rep will use these pain signals to open a conversation. A WRONG pain signal is worse than no pain signal — it destroys credibility instantly. When in doubt, return fewer signals or an empty list
-- Zero pain signals is ALWAYS better than fabricated ones
+PAIN SIGNALS — ACCURACY IS EVERYTHING:
+A sales rep will use these pain signals to open a conversation. A WRONG or FABRICATED pain signal destroys credibility instantly. Returning 0 pain signals with honest data gaps is a CORRECT output. Returning 3 manufactured signals is a CRITICAL FAILURE.
 
-CONFIDENCE SCORING:
-- 8-10: Multiple verified sources with rich, specific data about the prospect and company
-- 4-7: Some data found but with notable gaps or thin sources
-- 1-3: Very little data available, mostly surface-level information
-- When data is thin, score LOW and list the gaps — honesty is more valuable than false confidence
+HARD RULES:
+- Only report pain signals you can back with specific evidence FROM the research data
+- Return an empty list when the data does not support any pain signals — this is expected and correct
+- Maximum 3 pain signals. There is NO minimum. Do not stretch to fill slots
+- EVERY pain signal MUST cite a specific source, fact, or data point in the evidence field
+
+EVIDENCE CATEGORIES (determines what you can report):
+  Category 1 — CONCRETE: Customer/tenant/client complaints, negative reviews on consumer platforms (Trustpilot, Google Reviews, Yell, allAgents, WhichPad, G2, etc.), regulatory actions, reported incidents, public disputes. Quote or cite the specific source
+  Category 2 — NEWS-BASED: Recent layoffs, funding rounds implying cash burn, lawsuits, market exits, product recalls, leadership changes, regulatory changes. Cite the news item
+  Category 3 — INFERENCE: Inferences from business model, competitive landscape, or industry trends. ALWAYS prefix the evidence field with "Likely based on..." or "Inferred from..."
+
+CATEGORY LIMITS (enforced strictly):
+- If you have category 1 or 2 evidence: report up to 3 pain signals
+- If you ONLY have category 3 inferences (no concrete or news evidence at all): report 0 or 1 pain signals MAX. Flag the lack of concrete evidence in data_gaps
+- Employee reviews (Indeed, Glassdoor) about internal conditions are NOT category 1. Only use if they reveal direct business impact reported in news
+
+FABRICATION TRAPS (do NOT do these):
+- REFRAMING POSITIVES AS PAIN: A LinkedIn post celebrating "100% occupancy!" is NOT evidence of "pressure to maintain occupancy." A hiring post saying "We're expanding!" is NOT evidence of "recruitment challenges." Positive signals are positive — do not invert them
+- PRODUCT-AS-PAIN: If a company PROVIDES a service, that is their strength, not their pain. Property management company → "property management complexity" is NOT a valid pain signal
+- DESCRIBING THEIR BUSINESS AS PAIN: "Managing diverse tenant needs" when that IS their job is not a pain signal — it's a job description
+- GENERIC FILLER: "They care about growth", "they need better tools", "scaling challenges" with no specific evidence
+
+CONFIDENCE SCORING — HARD CALIBRATION:
+Your confidence score tells a sales rep: "Can I trust this research before I pick up the phone?"
+
+MANDATORY RULES (not guidelines — these override your judgment):
+- Confidence 8-10: REQUIRES category 1 or 2 evidence for at least 2 pain signals AND rich company data from multiple sources. If you don't have this, you CANNOT score 8+
+- Confidence 5-7: Some category 1/2 evidence OR strong company data with limited pain signal evidence
+- Confidence 3-4: Only category 3 inferences available, or data is thin across the board
+- Confidence 1-2: Almost no useful data found
+
+CALIBRATION CHECK: Before outputting your score, verify:
+- If data_gaps mentions missing reviews/complaints/news → score MUST be ≤ 6
+- If ALL pain signals are category 3 inferences → score MUST be ≤ 4
+- If you have 0 pain signals → score MUST be ≤ 5
+- Does your score match the evidence quality, or are you being optimistic? Default to LOWER when uncertain
 
 LINKEDIN DATA (when provided):
 - LinkedIn profile and posts data is HIGH-VALUE — it shows verified role, career trajectory, self-described expertise, and topics they publicly care about

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import httpx
 from urllib.parse import urlparse
 from app.config import get_settings
@@ -35,11 +36,14 @@ GENERIC_BUSINESS_WORDS = {
 
 
 def _is_company_match(company_lower: str, text: str) -> bool:
-    """Two-tier company name matching to prevent false positives on generic words.
+    """Company name matching with false-positive protection for generic names.
 
-    Tier 1: Full company name (minus suffixes) appears as phrase → definitive
+    Tier 1: Full core name appears as phrase → definitive match
     Tier 2: Any distinctive (non-generic) word from name appears → match
-    Tier 3: ALL generic words co-occur (min 2 required) → match
+    Tier 3: ALL generic words co-occur (3+ words required) → match
+            Disabled for 2-word all-generic names because scattered
+            co-occurrence of 2 common words is too unreliable
+            (e.g., "exchange" + "residential" matches any real estate article)
     """
     core_parts = [
         p for p in company_lower.split()
@@ -54,31 +58,56 @@ def _is_company_match(company_lower: str, text: str) -> bool:
     if distinctive and any(p in text for p in distinctive):
         return True
 
-    if not distinctive and len(core_parts) >= 2 and all(p in text for p in core_parts):
+    if not distinctive and len(core_parts) >= 3 and all(p in text for p in core_parts):
         return True
 
     return False
 
 
+def _is_name_match(name_lower: str, text: str) -> bool:
+    """Check if a person's name appears in text using word-boundary matching.
+
+    Requires ALL name parts to appear as whole words (not substrings).
+    This prevents "gupta" matching any Gupta, or "li" matching inside
+    "published". Both first AND last name must be present.
+    """
+    if name_lower in text:
+        return True
+    name_parts = [p for p in name_lower.split() if len(p) > 1]
+    if not name_parts:
+        return False
+    return all(
+        re.search(r'\b' + re.escape(p) + r'\b', text)
+        for p in name_parts
+    )
+
+
 def filter_relevant_results(
     serper_results: dict, name: str, company: str
 ) -> list[dict]:
-    """Pre-filter: only keep search results where the snippet or title
-    mentions the company or person name. Drops obvious noise before
-    we spend Jina tokens extracting content.
+    """Pre-filter Serper results using query-aware matching.
 
-    Uses two-tier company matching to prevent false positives when
-    company names contain only generic business words (e.g., "Exchange
-    Residential" would previously match any text containing "exchange").
+    Different queries need different matching strategies:
+    - company_* queries (services, news, reviews): require company_match.
+      These queries search for company info — name matching is irrelevant
+      and only adds false positives.
+    - person_background query: require BOTH company_match AND name_match.
+      This query searches for a specific person at a specific company —
+      a page about a different person (same name, different company) or
+      a company-only page should not pass.
+
+    Name matching uses word-boundary regex with all() to prevent single
+    common surname from matching the world.
     """
     name_lower = name.lower()
     company_lower = company.lower()
-    name_parts = [p for p in name_lower.split() if len(p) > 2]
 
     relevant = []
     seen_urls = set()
 
     for query_key, query_data in serper_results.items():
+        is_person_query = query_key == "person_background"
+
         for result in query_data.get("results", []):
             url = result.get("link", "")
             if not url or url in seen_urls:
@@ -93,11 +122,14 @@ def filter_relevant_results(
             text = f"{title} {snippet}"
 
             company_match = _is_company_match(company_lower, text)
-            name_match = name_lower in text or any(
-                p in text for p in name_parts
-            )
 
-            if company_match or name_match:
+            if is_person_query:
+                name_match = _is_name_match(name_lower, text)
+                passes = company_match and name_match
+            else:
+                passes = company_match
+
+            if passes:
                 seen_urls.add(url)
                 relevant.append({
                     "url": url,
@@ -222,6 +254,46 @@ def _is_useful_content(title: str, content: str) -> bool:
     return True
 
 
+def _is_relevant_content(
+    content: str, title: str, name: str, company: str, source_query: str
+) -> bool:
+    """Gate 2: verify extracted content is actually about the target entity.
+
+    After Jina extraction we have the FULL page text — much more reliable
+    than a 2-sentence snippet. This catches pages that slipped through
+    Gate 1 (pre-extraction filter) due to loose matching:
+    - Pages about a different person with the same name
+    - Pages about a different company with similar generic words
+    - Garbage pages that passed _is_useful_content but have no real info
+
+    For company queries: content must mention the company name
+    For person queries: content must mention the company name
+    (person name check is less critical here because Gate 1 already
+    requires both name AND company for person_background results)
+    """
+    text = f"{(title or '').lower()} {(content or '').lower()}"
+
+    company_lower = company.lower()
+    core_parts = [
+        p for p in company_lower.split()
+        if p not in COMPANY_SUFFIXES and len(p) > 2
+    ]
+    core_name = " ".join(core_parts)
+
+    if core_name and core_name in text:
+        return True
+
+    distinctive = [p for p in core_parts if p not in GENERIC_BUSINESS_WORDS]
+    if distinctive and any(p in text for p in distinctive):
+        return True
+
+    if source_query == "person_background":
+        if _is_name_match(name.lower(), text):
+            return True
+
+    return False
+
+
 async def extract_lead_content(
     serper_results: dict, name: str, company: str
 ) -> dict:
@@ -283,10 +355,11 @@ async def extract_lead_content(
         ]
         results = await asyncio.gather(*tasks)
 
-    # Attach source metadata, filter junk content, count failures
+    # Attach source metadata, filter junk and irrelevant content, count failures
     extractions = []
     failed = 0
     for i, result in enumerate(results):
+        source_query = urls_to_extract[i].get("source_query", "")
         if result["error"]:
             failed += 1
             extractions.append(result)
@@ -306,8 +379,15 @@ async def extract_lead_content(
                 reason = "Unknown filter"
             result["error"] = reason
             extractions.append(result)
+        elif not _is_relevant_content(
+            result.get("content", ""), result.get("title", ""),
+            name, company, source_query,
+        ):
+            failed += 1
+            result["error"] = "Content not about target company/person"
+            extractions.append(result)
         else:
-            result["source_query"] = urls_to_extract[i]["source_query"]
+            result["source_query"] = source_query
             result["snippet"] = urls_to_extract[i]["snippet"]
             extractions.append(result)
 
