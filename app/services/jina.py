@@ -12,7 +12,7 @@ JINA_READER_URL = "https://r.jina.ai"
 # lead scraper aggregators (shallow mirrored data)
 LOW_VALUE_DOMAINS = {
     "facebook.com", "instagram.com", "twitter.com", "x.com",
-    "tiktok.com", "pinterest.com",
+    "tiktok.com", "pinterest.com", "linkedin.com", "yelp.com",
     "zoominfo.com", "rocketreach.co", "prospeo.io", "lusha.com",
     "signalhire.com", "leadiq.com", "apollo.io",
 }
@@ -168,9 +168,6 @@ async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict
 
         parsed = _parse_jina_response(resp)
         content = parsed["content"]
-        logger.info(f"[jina] {url[:80]} | status={resp.status_code} | raw_len={len(resp.text)} | content_len={len(content)} | title={parsed['title'][:100]}")
-        if len(content.strip()) < 200:
-            logger.info(f"[jina] {url[:80]} | SHORT CONTENT: {content.strip()[:200]!r}")
 
         max_len = get_settings().jina_max_content_length
         if len(content) > max_len:
@@ -185,7 +182,7 @@ async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict
             "error": None,
         }
     except httpx.HTTPStatusError as e:
-        logger.error(f"[jina] {url[:80]} | HTTP ERROR: {e.response.status_code}")
+        logger.error(f"[jina] {url[:80]} | HTTP {e.response.status_code}")
         return {
             "url": url,
             "title": "",
@@ -196,7 +193,7 @@ async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict
         }
     except (httpx.RequestError, Exception) as e:
         err_msg = str(e)[:200] or f"{type(e).__name__} (no message)"
-        logger.error(f"[jina] {url[:80]} | EXCEPTION: {type(e).__name__}: {repr(e)[:300]}")
+        logger.error(f"[jina] {url[:80]} | {type(e).__name__}: {err_msg}")
         return {
             "url": url,
             "title": "",
@@ -215,6 +212,8 @@ def _is_useful_content(title: str, content: str) -> bool:
     if "sign up | linkedin" in title_lower or "join linkedin" in title_lower:
         return False
     if "just a moment" in title_lower or "verifying connection" in title_lower:
+        return False
+    if "attention required" in title_lower:
         return False
     if "security verification" == content_stripped.lower():
         return False
@@ -297,7 +296,7 @@ async def extract_lead_content(
             content_s = (result.get("content") or "").strip()
             if "sign up | linkedin" in title_l or "join linkedin" in title_l:
                 reason = f"LinkedIn auth wall (title={title_l[:60]})"
-            elif "just a moment" in title_l or "verifying connection" in title_l:
+            elif "just a moment" in title_l or "verifying connection" in title_l or "attention required" in title_l:
                 reason = f"Cloudflare/bot check (title={title_l[:60]})"
             elif "security verification" == content_s.lower():
                 reason = "Security verification page"
@@ -305,7 +304,6 @@ async def extract_lead_content(
                 reason = f"Content too short ({len(content_s)} chars)"
             else:
                 reason = "Unknown filter"
-            logger.info(f"[jina] REJECTED {result.get('url', '?')[:80]} | {reason}")
             result["error"] = reason
             extractions.append(result)
         else:

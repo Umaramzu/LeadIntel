@@ -49,9 +49,7 @@ async def _run_and_email(
         # Cap leads to what they paid for
         leads_to_process = leads[:max_leads]
 
-        logger.info(f"[landing] Background pipeline starting: {len(leads_to_process)} leads, config={config.model_dump()}")
         result = await run_pipeline(leads_to_process, config)
-        logger.info(f"[landing] Background pipeline done: processed={result.processed}, failed={result.failed}, duration={result.duration_s}s")
 
         # Generate Excel
         buffer = export_pipeline_results(result)
