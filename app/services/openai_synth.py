@@ -99,6 +99,28 @@ LINKEDIN DATA (when provided):
 - Career history shows trajectory and tenure — a new role means different priorities than someone 3 years in"""
 
 
+def _calibrate_confidence(research: dict) -> int:
+    """Safety net: cap confidence when ALL pain signals are inferred.
+
+    gpt-4.1-mini sometimes generates category 3 inferences ("Likely
+    based on...", "Inferred from...") and still scores 7-8. That's
+    misleading — a sales rep trusts the score, calls the lead, and
+    has nothing concrete to reference. This caps that one scenario.
+    """
+    score = research["confidence_score"]
+    pain_signals = research["pain_signals"]
+
+    if pain_signals:
+        all_inferred = all(
+            ps["evidence"].lower().startswith(("likely based on", "inferred from"))
+            for ps in pain_signals
+        )
+        if all_inferred:
+            score = min(score, 4)
+
+    return score
+
+
 def _build_user_prompt(
     name: str,
     company: str,
@@ -236,9 +258,11 @@ async def synthesize_lead(
     )
 
     result = response.choices[0].message.parsed
+    research_dict = result.model_dump()
+    research_dict["confidence_score"] = _calibrate_confidence(research_dict)
 
     return {
-        "research": result.model_dump(),
+        "research": research_dict,
         "usage": {
             "prompt_tokens": response.usage.prompt_tokens,
             "completion_tokens": response.usage.completion_tokens,
