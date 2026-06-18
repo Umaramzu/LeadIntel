@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 JINA_READER_URL = "https://r.jina.ai"
 
-# Domains that waste extraction slots — social media (login-walled),
+# Domains that waste extraction slots -- social media (login-walled),
 # lead scraper aggregators (shallow mirrored data)
 LOW_VALUE_DOMAINS = {
     "facebook.com", "instagram.com", "twitter.com", "x.com",
@@ -34,78 +34,154 @@ GENERIC_BUSINESS_WORDS = {
     "advanced", "strategic", "creative", "smart", "innovative",
 }
 
+# Must match serper.py -- compound TLDs before their simple versions
+DOMAIN_TLD_RE = (
+    r'(?:co\.uk|com\.au|co\.nz|co\.in|com\.br|co\.za|com\.sg|co\.jp'
+    r'|com|io|co|org|net|ai|dev|app|me|us|uk|de|fr|ca|in|au|nz|ie|ch'
+    r'|se|no|dk|nl|be|it|es|pt|jp|kr|sg|za|ae|mx|br)'
+)
 
-def _is_company_match(company_lower: str, text: str) -> bool:
+ENTITY_LEGAL_SUFFIXES = {
+    "ltd", "limited", "inc", "incorporated", "llc", "plc",
+    "corp", "corporation", "gmbh", "ag", "pty", "sa",
+}
+
+
+def _normalize_text(text):
+    """Normalize for matching: strip possessive 's and apostrophes.
+    "Lenny's" becomes "Lenny", "O'Reilly" becomes "OReilly"
+    """
+    text = text.replace("’", "'")
+    text = re.sub(r"'s\b", "", text)
+    text = text.replace("'", "")
+    return text
+
+
+def _company_to_slug(company_lower):
+    """Company name to domain-comparable slug: strip apostrophes, &, spaces.
+    "lenny's newsletter" becomes "lennysnewsletter"
+    """
+    return (company_lower
+            .replace("’", "").replace("'", "")
+            .replace("&", "")
+            .replace(" ", ""))
+
+
+def _is_company_match(company_lower, text):
     """Company name matching with false-positive protection for generic names.
 
-    Tier 1: Full core name appears as phrase → definitive match
-    Tier 2: Any distinctive (non-generic) word from name appears → match
-    Tier 3: ALL generic words co-occur (3+ words required) → match
+    Both sides are normalized so apostrophes do not break matching:
+    "Lenny's Newsletter" matches text containing "Lenny" or "Lennys".
+
+    Tier 1: Full core name appears as phrase -- definitive match
+    Tier 2: Any distinctive (non-generic) word from name appears -- match
+    Tier 3: ALL generic words co-occur (3+ words required) -- match
             Disabled for 2-word all-generic names because scattered
             co-occurrence of 2 common words is too unreliable
             (e.g., "exchange" + "residential" matches any real estate article)
     """
+    company_norm = _normalize_text(company_lower)
+    text_norm = _normalize_text(text)
+
     core_parts = [
-        p for p in company_lower.split()
+        p for p in company_norm.split()
         if p not in COMPANY_SUFFIXES and len(p) > 2
     ]
     core_name = " ".join(core_parts)
 
-    if core_name and core_name in text:
+    if core_name and core_name in text_norm:
         return True
 
     distinctive = [p for p in core_parts if p not in GENERIC_BUSINESS_WORDS]
-    if distinctive and any(p in text for p in distinctive):
+    if distinctive and any(p in text_norm for p in distinctive):
         return True
 
-    if not distinctive and len(core_parts) >= 3 and all(p in text for p in core_parts):
+    if not distinctive and len(core_parts) >= 3 and all(p in text_norm for p in core_parts):
         return True
 
     return False
 
 
-def _is_name_match(name_lower: str, text: str) -> bool:
-    """Check if a person's name appears in text using word-boundary matching.
+def _is_name_match(name_lower, text):
+    """Check if a person name appears in text using word-boundary matching.
 
+    Both sides are normalized so names like O'Brien match "OBrien" in text.
     Requires ALL name parts to appear as whole words (not substrings).
     This prevents "gupta" matching any Gupta, or "li" matching inside
     "published". Both first AND last name must be present.
     """
-    if name_lower in text:
+    name_norm = _normalize_text(name_lower)
+    text_norm = _normalize_text(text)
+
+    if name_norm in text_norm:
         return True
-    name_parts = [p for p in name_lower.split() if len(p) > 1]
+    name_parts = [p for p in name_norm.split() if len(p) > 1]
     if not name_parts:
         return False
     return all(
-        re.search(r'\b' + re.escape(p) + r'\b', text)
+        re.search(r'\b' + re.escape(p) + r'\b', text_norm)
         for p in name_parts
     )
 
 
-def filter_relevant_results(
-    serper_results: dict, name: str, company: str
-) -> list[dict]:
-    """Pre-filter Serper results using query-aware matching.
+def _domain_matches(domain, target):
+    """Check if domain is the target or a subdomain of it."""
+    domain = domain.replace("www.", "")
+    target = target.replace("www.", "")
+    return domain == target or domain.endswith("." + target)
 
-    Different queries need different matching strategies:
-    - company_* queries (services, news, reviews): require company_match.
-      These queries search for company info — name matching is irrelevant
-      and only adds false positives.
-    - person_background query: require BOTH company_match AND name_match.
-      This query searches for a specific person at a specific company —
-      a page about a different person (same name, different company) or
-      a company-only page should not pass.
 
-    Name matching uses word-boundary regex with all() to prevent single
-    common surname from matching the world.
+def _is_target_entity(url, target_domain, company_lower):
+    """Check if a search result is about the target entity, not a different
+    company that happens to share the same name.
+
+    Uses URL-based signals:
+    1. Result domain matches target -- pass (e.g., honeycomb.io/pricing)
+    2. Result domain contains company name slug but != target -- reject
+       (e.g., honeycombinsurance.com when target is honeycomb.io)
+    3. URL path references a competing domain -- reject
+       (e.g., trustpilot.com/review/honeycombinsurance.com)
+    4. Third-party domains without company name -- pass through to Gate 2
+    """
+    result_domain = urlparse(url).netloc.lower().replace("www.", "")
+
+    if _domain_matches(result_domain, target_domain):
+        return True
+
+    company_slug = _company_to_slug(company_lower)
+    if result_domain.split(".")[0].startswith(company_slug):
+        return False
+
+    domain_re = re.compile(
+        r'(' + re.escape(company_slug) + r'[a-z-]*\.' + DOMAIN_TLD_RE + r')\b'
+    )
+    for match in domain_re.findall(url.lower()):
+        if not _domain_matches(match, target_domain):
+            return False
+
+    return True
+
+
+def filter_relevant_results(serper_results, name, company):
+    """Pre-filter Serper results using query-aware matching + entity disambiguation.
+
+    Three layers of filtering:
+    1. Low-value domain rejection (social media, lead scrapers)
+    2. Query-aware name/company matching (person queries need both)
+    3. Entity disambiguation -- reject results about a different company
+       that shares the same name (e.g., Honeycomb Insurance vs Honeycomb.io)
     """
     name_lower = name.lower()
     company_lower = company.lower()
+    target_domain = serper_results.get("_meta", {}).get("target_domain")
 
     relevant = []
     seen_urls = set()
 
     for query_key, query_data in serper_results.items():
+        if query_key.startswith("_"):
+            continue
+
         is_person_query = query_key == "person_background"
 
         for result in query_data.get("results", []):
@@ -129,6 +205,10 @@ def filter_relevant_results(
             else:
                 passes = company_match
 
+            if passes and target_domain:
+                if not _is_target_entity(url, target_domain, company_lower):
+                    passes = False
+
             if passes:
                 seen_urls.add(url)
                 relevant.append({
@@ -141,8 +221,8 @@ def filter_relevant_results(
     return relevant
 
 
-def _parse_jina_response(resp: httpx.Response) -> dict:
-    """Parse Jina response — handles both JSON and plain text formats."""
+def _parse_jina_response(resp):
+    """Parse Jina response -- handles both JSON and plain text formats."""
     content_type = resp.headers.get("content-type", "")
 
     # Try JSON first
@@ -186,7 +266,7 @@ def _parse_jina_response(resp: httpx.Response) -> dict:
     }
 
 
-async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict:
+async def extract_url(url, api_key, client):
     """Extract clean content from a single URL via Jina Reader."""
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -236,7 +316,7 @@ async def extract_url(url: str, api_key: str, client: httpx.AsyncClient) -> dict
         }
 
 
-def _is_useful_content(title: str, content: str) -> bool:
+def _is_useful_content(title, content):
     """Detect auth walls, bot challenges, and empty pages after extraction."""
     title_lower = (title or "").lower()
     content_stripped = (content or "").strip()
@@ -254,12 +334,10 @@ def _is_useful_content(title: str, content: str) -> bool:
     return True
 
 
-def _is_relevant_content(
-    content: str, title: str, name: str, company: str, source_query: str
-) -> bool:
+def _is_relevant_content(content, title, name, company, source_query):
     """Gate 2: verify extracted content is actually about the target entity.
 
-    After Jina extraction we have the FULL page text — much more reliable
+    After Jina extraction we have the FULL page text -- much more reliable
     than a 2-sentence snippet. This catches pages that slipped through
     Gate 1 (pre-extraction filter) due to loose matching:
     - Pages about a different person with the same name
@@ -272,19 +350,20 @@ def _is_relevant_content(
     requires both name AND company for person_background results)
     """
     text = f"{(title or '').lower()} {(content or '').lower()}"
+    text_norm = _normalize_text(text)
 
-    company_lower = company.lower()
+    company_norm = _normalize_text(company.lower())
     core_parts = [
-        p for p in company_lower.split()
+        p for p in company_norm.split()
         if p not in COMPANY_SUFFIXES and len(p) > 2
     ]
     core_name = " ".join(core_parts)
 
-    if core_name and core_name in text:
+    if core_name and core_name in text_norm:
         return True
 
     distinctive = [p for p in core_parts if p not in GENERIC_BUSINESS_WORDS]
-    if distinctive and any(p in text for p in distinctive):
+    if distinctive and any(p in text_norm for p in distinctive):
         return True
 
     if source_query == "person_background":
@@ -294,14 +373,85 @@ def _is_relevant_content(
     return False
 
 
-async def extract_lead_content(
-    serper_results: dict, name: str, company: str
-) -> dict:
-    """Full pipeline: pre-filter Serper results → extract top N via Jina Reader.
+def _has_different_entity_name(title_clean, company_words):
+    """Check if title contains a formal entity name that differs from target.
+
+    "HONEYCOMB SERVICES LTD" when target is "Honeycomb" -> True (extra word "services")
+    "GRAYSONS PROPERTIES LIMITED" when target is "Graysons Properties" -> False (no extras)
+    "Honeycomb Inc" -> False (no extra words between name and suffix)
+    """
+    title_words = title_clean.split()
+
+    for i, word in enumerate(title_words):
+        if word not in company_words:
+            continue
+        # Walk forward past all company-name words
+        j = i + 1
+        while j < len(title_words) and title_words[j] in company_words:
+            j += 1
+        # j now points to first non-company word; scan for legal suffix
+        extra_start = j
+        while j < len(title_words) and title_words[j] not in ENTITY_LEGAL_SUFFIXES:
+            j += 1
+            if j - extra_start > 4:
+                break
+        if j < len(title_words) and title_words[j] in ENTITY_LEGAL_SUFFIXES:
+            extra_words = set(title_words[extra_start:j])
+            tld_fragments = {"com", "io", "co", "org", "net", "ai", "dev", "app", "uk", "us"}
+            meaningful = extra_words - company_words - tld_fragments
+            meaningful = {w for w in meaningful if len(w) > 2}
+            if meaningful:
+                return True
+    return False
+
+
+def _is_correct_entity_content(content, title, target_domain, company_lower, source_url):
+    """Post-extraction entity check for third-party domains.
+
+    When target_domain is known and the source is NOT the target domain,
+    applies two conservative checks -- only rejects on positive evidence:
+    1. Content mentions a competing company-name domain -- reject
+    2. Title contains a formal entity name with extra distinguishing words
+       + a legal suffix (Ltd/Inc/GmbH) -- reject
+    """
+    if not target_domain:
+        return True
+
+    source_domain = urlparse(source_url).netloc.lower().replace("www.", "")
+    if _domain_matches(source_domain, target_domain):
+        return True
+
+    text = f"{(title or '').lower()} {(content or '').lower()}"
+    company_slug = _company_to_slug(company_lower)
+
+    # If content mentions the target domain, confirmed correct entity
+    if target_domain in text:
+        return True
+
+    # Check for competing domains in content
+    domain_re = re.compile(
+        r'\b(' + re.escape(company_slug) + r'[a-z-]*\.' + DOMAIN_TLD_RE + r')\b'
+    )
+    for match in domain_re.findall(text):
+        if not _domain_matches(match, target_domain):
+            return False
+
+    # Check title for formal entity names that differ from target
+    company_norm = _normalize_text(company_lower)
+    company_words = set(company_norm.split())
+    title_clean = re.sub(r'[^\w\s]', ' ', _normalize_text((title or '').lower()))
+    if _has_different_entity_name(title_clean, company_words):
+        return False
+
+    return True
+
+
+async def extract_lead_content(serper_results, name, company):
+    """Full pipeline: pre-filter Serper results then extract top N via Jina Reader.
 
     Extractions run concurrently for speed. URL selection enforces:
-    1. Source diversity — at least 1 URL from each Serper query source
-    2. Domain diversity — max 1 URL per domain (7 slots = 7 unique sources)
+    1. Source diversity -- at least 1 URL from each Serper query source
+    2. Domain diversity -- max 1 URL per domain (7 slots = 7 unique sources)
     3. Low-value domains already filtered out in filter_relevant_results
     """
     settings = get_settings()
@@ -309,10 +459,13 @@ async def extract_lead_content(
         raise ValueError("JINA_API_KEY not set in environment.")
 
     max_extractions = settings.max_jina_extractions
+    target_domain = serper_results.get("_meta", {}).get("target_domain")
 
     # Count total URLs across all queries
     all_urls = []
-    for query_data in serper_results.values():
+    for key, query_data in serper_results.items():
+        if key.startswith("_"):
+            continue
         for result in query_data.get("results", []):
             if result.get("link"):
                 all_urls.append(result["link"])
@@ -324,11 +477,13 @@ async def extract_lead_content(
     relevant_urls = {r["url"] for r in relevant}
     filtered_out = [u for u in all_urls if u not in relevant_urls]
 
-    # Phase 1: Diversity guarantee — 1 URL from each query source, 1 per domain
+    # Phase 1: Diversity guarantee -- 1 URL from each query source, 1 per domain
     urls_to_extract = []
     seen_urls = set()
     seen_domains = set()
     for source_key in serper_results.keys():
+        if source_key.startswith("_"):
+            continue
         for r in relevant:
             if r["source_query"] == source_key and r["url"] not in seen_urls:
                 domain = urlparse(r["url"]).netloc.lower()
@@ -338,7 +493,7 @@ async def extract_lead_content(
                     seen_domains.add(domain)
                     break
 
-    # Phase 2: Fill remaining slots — 1 per domain, relevance order
+    # Phase 2: Fill remaining slots -- 1 per domain, relevance order
     for r in relevant:
         if len(urls_to_extract) >= max_extractions:
             break
@@ -385,6 +540,13 @@ async def extract_lead_content(
         ):
             failed += 1
             result["error"] = "Content not about target company/person"
+            extractions.append(result)
+        elif not _is_correct_entity_content(
+            result.get("content", ""), result.get("title", ""),
+            target_domain, company.lower(), result.get("url", ""),
+        ):
+            failed += 1
+            result["error"] = "Wrong entity -- different company with same name"
             extractions.append(result)
         else:
             result["source_query"] = source_query

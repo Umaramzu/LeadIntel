@@ -93,9 +93,12 @@ async def _process_one_lead(
                 serper_results = await search_lead(lead.name, lead.company)
                 result.serper = {
                     "total_results": sum(
-                        len(r.get("results", [])) for r in serper_results.values()
+                        len(v.get("results", []))
+                        for k, v in serper_results.items()
+                        if not k.startswith("_")
                     ),
-                    "queries": list(serper_results.keys()),
+                    "queries": [k for k in serper_results.keys() if not k.startswith("_")],
+                    "target_domain": serper_results.get("_meta", {}).get("target_domain"),
                 }
 
             # Step 2: Jina extraction (requires Serper results)

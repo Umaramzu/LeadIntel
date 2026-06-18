@@ -73,7 +73,7 @@ async def _run_and_email(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "from": "LeadIntel <onboarding@resend.dev>",
+                    "from": "LeadIntel <noreply@leadintel.amzuconsulting.ca>",
                     "to": [email],
                     "subject": f"Your LeadIntel Research Report — {result.processed} Leads",
                     "html": (

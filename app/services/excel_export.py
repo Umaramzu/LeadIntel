@@ -153,20 +153,18 @@ def _extract_row(lead_result) -> list:
     role = research.get("prospect_role", {})
     pains = research.get("pain_signals", [])
 
-    # Flatten pain signals (up to 3)
+    # Flatten pain signals (up to 3) — no cell left blank
     pain_cells = []
-    if not pains:
-        pain_cells.append("No public complaints, reviews, or news found for this company")
-        pain_cells.append("")
-        pain_cells.extend(["", "", "", ""])
-    else:
-        for i in range(3):
-            if i < len(pains):
-                pain_cells.append(pains[i].get("challenge", ""))
-                pain_cells.append(pains[i].get("evidence", ""))
-            else:
-                pain_cells.append("")
-                pain_cells.append("")
+    for i in range(3):
+        if i < len(pains):
+            pain_cells.append(pains[i].get("challenge", ""))
+            pain_cells.append(pains[i].get("evidence", ""))
+        elif not pains:
+            pain_cells.append("No public complaints, reviews, or news found for this company")
+            pain_cells.append("No evidence to cite — no complaints, reviews, or news found")
+        else:
+            pain_cells.append("No additional pain signals identified")
+            pain_cells.append("No further evidence found")
 
     data_gaps = research.get("data_gaps", [])
     gaps_text = "\n".join(f"• {g}" for g in data_gaps)
