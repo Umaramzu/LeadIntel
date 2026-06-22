@@ -96,7 +96,12 @@ Your confidence score tells a sales rep: "Can I trust this research before I pic
 - Use the "about" section to understand their professional identity and priorities
 - Use post topics and engagement to identify what they're actively thinking about
 - Their skills list shows what they want to be known for
-- Career history shows trajectory and tenure — a new role means different priorities than someone 3 years in"""
+- Career history shows trajectory and tenure — a new role means different priorities than someone 3 years in
+
+## COMPANY SIZE & STAGE
+- LinkedIn company data (employee count) is the most reliable source for company size — it is standardized and verified. If available, use it as the primary source for size/stage categorization.
+- If no LinkedIn company size data is available, use website or external sources with caveats like "per company website" or "not confirmed independently"
+- For revenue, ARR, or funding data: only report numbers found in the research data with a specific source citation"""
 
 
 def _calibrate_confidence(research: dict) -> int:

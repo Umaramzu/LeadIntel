@@ -43,7 +43,7 @@ DOMAIN_TLD_RE = (
 
 ENTITY_LEGAL_SUFFIXES = {
     "ltd", "limited", "inc", "incorporated", "llc", "plc",
-    "corp", "corporation", "gmbh", "ag", "pty", "sa",
+    "corp", "corporation", "gmbh", "ag", "pty", "pvt", "sa",
 }
 
 
@@ -409,10 +409,14 @@ def _is_correct_entity_content(content, title, target_domain, company_lower, sou
     """Post-extraction entity check for third-party domains.
 
     When target_domain is known and the source is NOT the target domain,
-    applies two conservative checks -- only rejects on positive evidence:
+    applies checks to reject content about a different entity:
     1. Content mentions a competing company-name domain -- reject
     2. Title contains a formal entity name with extra distinguishing words
        + a legal suffix (Ltd/Inc/GmbH) -- reject
+    3. For multi-word company names on third-party domains that don't mention
+       the target domain: require ALL core name words to co-occur in content.
+       Prevents single-word false positives like "overseas" in "overseas
+       expansion" matching "Overseas IT Solution".
     """
     if not target_domain:
         return True
@@ -442,6 +446,24 @@ def _is_correct_entity_content(content, title, target_domain, company_lower, sou
     title_clean = re.sub(r'[^\w\s]', ' ', _normalize_text((title or '').lower()))
     if _has_different_entity_name(title_clean, company_words):
         return False
+
+    # For multi-word company names: require ALL core words to co-occur in
+    # content as whole words. Single-word overlap (e.g., "overseas" appearing
+    # in an article about "overseas expansion") is insufficient evidence on a
+    # third-party page that doesn't reference the target domain.
+    # Word-boundary matching prevents "solution" from matching inside
+    # "solutions" in unrelated content.
+    core_verify = [
+        p.rstrip('.') for p in company_norm.split()
+        if p.rstrip('.') not in ENTITY_LEGAL_SUFFIXES and len(p.rstrip('.')) > 2
+    ]
+    if len(core_verify) >= 2:
+        text_norm = _normalize_text(text)
+        if not all(
+            re.search(r'\b' + re.escape(w) + r'\b', text_norm)
+            for w in core_verify
+        ):
+            return False
 
     return True
 
