@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     # Apify / LinkedIn
     apify_max_poll_seconds: int = 120
+    apify_posts_limit: int = 5  
     linkedin_max_skills_for_ai: int = 10
     linkedin_max_posts_for_ai: int = 5
 

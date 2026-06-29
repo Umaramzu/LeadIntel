@@ -149,8 +149,10 @@ async def scrape_linkedin_profile(linkedin_url: str) -> dict:
 
 async def scrape_linkedin_posts(linkedin_url: str) -> list[dict]:
     """Scrape recent posts from a LinkedIn profile. Returns list of post dicts."""
+    settings = get_settings()
     raw_items = await _run_actor(POSTS_ACTOR_ID, {
         "usernames": [linkedin_url],
+        "limit": settings.apify_posts_limit,
     })
     return _extract_posts(raw_items)
 

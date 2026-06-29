@@ -1,3 +1,4 @@
+from typing import Literal
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from app.config import get_settings
@@ -17,13 +18,14 @@ class ProspectRole(BaseModel):
     key_responsibilities: str = Field(description="Key responsibilities and pressures in their role")
 
 class PainSignal(BaseModel):
-    challenge: str = Field(description="A specific, concrete challenge this company or person faces — backed by evidence from the research data")
-    evidence: str = Field(description="Direct evidence from the research data that supports this pain signal. Must cite a specific source, fact, or data point")
+    challenge: str = Field(description="A specific challenge this company or person faces, drawn from the research data")
+    evidence_type: Literal["evidenced", "inferred"] = Field(description="'evidenced' = the research data EXPLICITLY reports this problem/complaint/negative review/dispute/adverse news. 'inferred' = the challenge is reasoned from facts that do not themselves state a problem (business model, company stage, role, or a neutral/positive fact like an achievement or growth move). A real, cited fact does NOT make a signal 'evidenced' if the challenge itself is your inference. When unsure, choose 'inferred'.")
+    evidence: str = Field(description="For 'evidenced': cite the specific source/fact/data point that reports the problem. For 'inferred': begin with 'Likely based on...' or 'Inferred from...' and name the specific fact the inference is built on.")
 
 class ProspectResearch(BaseModel):
     company_snapshot: CompanySnapshot
     prospect_role: ProspectRole
-    pain_signals: list[PainSignal] = Field(description="0-3 pain signals — challenges, pressures, or strategic concerns this prospect faces. Use direct evidence when available, reasonable inferences when not. Empty list is valid when data doesn't support any.")
+    pain_signals: list[PainSignal] = Field(description="0-3 pain signals — concrete challenges or strategic concerns the prospect faces. Use evidenced signals when concrete data exists; otherwise provide specific inferred signals (evidence prefixed with 'Likely based on...' / 'Inferred from...'). Return empty only when the data can't support even one grounded signal.")
     confidence_score: int = Field(description="1-10 rating of how confident you are in this research. 1=mostly guessing, 10=rich verified data")
     data_gaps: list[str] = Field(description="List what information was missing or couldn't be verified")
 
@@ -51,30 +53,39 @@ The prospect could be in ANY industry — healthcare, SaaS, logistics, finance, 
 - "key_offerings" should list their actual products/services found in the research — not generic capabilities. If their website lists specific service names or product tiers, use those
 - Capture differentiators — if reviews or content mention unique selling points (e.g., "no-deposit tenancy", "same-day delivery", "free guarantor service"), include those as offerings, not just generic service categories
 
-## PAIN SIGNALS — ACCURACY IS EVERYTHING
-A sales rep will use these pain signals to open a conversation. A WRONG or FABRICATED pain signal destroys credibility instantly. Returning 0 pain signals with honest data gaps is a CORRECT output. Returning 3 manufactured signals is a CRITICAL FAILURE.
+## PAIN SIGNALS — ACCURACY OVER VOLUME
+A sales rep uses these signals to open a conversation. Give them a real, usable angle on the prospect — without ever fabricating facts. Two failures are equally bad: inventing concrete problems that don't exist, AND returning nothing when the data clearly supports a grounded inference.
+
+Each signal MUST set its `evidence_type` field, and this choice is strict:
+- "evidenced" — ONLY when the research data EXPLICITLY reports this problem: a complaint, negative review, dispute, regulatory action, or adverse news event that is stated in the data. The problem itself must appear in the data, not be reasoned by you
+- "inferred" — a challenge you REASONED from facts that do not themselves state a problem: business model, company stage, role scope, market position, or a neutral/positive fact (an achievement, a service the company offers, a growth initiative)
+- A real, cited fact does NOT make a signal "evidenced" if the CHALLENGE is your inference. A completed project, a service offered, or an expansion move are not problems — a challenge drawn from them is "inferred". When in doubt, choose "inferred"
 
 ### HARD RULES
-- Only report pain signals you can back with specific evidence FROM the research data
-- Return an empty list when the data does not support any pain signals — this is expected and correct
-- Maximum 3 pain signals. There is NO minimum. Do not stretch to fill slots
-- EVERY pain signal MUST cite a specific source, fact, or data point in the evidence field
+- No more than 3 pain signals total. There is no fixed minimum
+- Lead with "evidenced" signals. When the data reports no explicit problems, provide specific "inferred" signals rather than leaving the prospect blank
+- EVERY signal must trace to a specific fact in the research data — a cited source for an "evidenced" signal, or the named fact behind an "inferred" one
+- An "inferred" signal MUST begin its evidence field with "Likely based on..." or "Inferred from...". Never present an inference as concrete evidence
+- Return an empty list ONLY when the data is too thin to support even one specific, grounded inference
 
-### EVIDENCE CATEGORIES (determines what you can report)
-  Category 1 — CONCRETE: Customer/tenant/client complaints, negative reviews on consumer platforms (Trustpilot, Google Reviews, Yell, allAgents, WhichPad, G2, etc.), regulatory actions, reported incidents, public disputes. Quote or cite the specific source
-  Category 2 — NEWS-BASED: Recent layoffs, funding rounds implying cash burn, lawsuits, market exits, product recalls, leadership changes, regulatory changes. Cite the news item
-  Category 3 — INFERENCE: Inferences from business model, competitive landscape, or industry trends. ALWAYS prefix the evidence field with "Likely based on..." or "Inferred from..."
+### EVIDENCE CATEGORIES
+  Category 1 — CONCRETE: Customer/client complaints, negative reviews on consumer platforms (Trustpilot, Google Reviews, Yell, G2, etc.), regulatory actions, reported incidents, public disputes. Cite the specific source → evidence_type "evidenced"
+  Category 2 — NEWS-BASED: Recent layoffs, funding rounds implying cash burn, lawsuits, market exits, product recalls, leadership or regulatory changes. Cite the news item → evidence_type "evidenced"
+  Category 3 — INFERENCE: A concrete, role-relevant challenge reasoned from business model, company stage, competitive landscape, or recent initiatives visible in the data → evidence_type "inferred"
 
-### CATEGORY LIMITS (enforced strictly)
-- If you have category 1 or 2 evidence: report up to 3 pain signals
-- If you ONLY have category 3 inferences (no concrete or news evidence at all): report 0 or 1 pain signals MAX. Flag the lack of concrete evidence in data_gaps
-- Employee reviews (Indeed, Glassdoor) about internal conditions are NOT category 1. Only use if they reveal direct business impact reported in news
+### HOW MANY, AND OF WHAT KIND
+- Category 1/2 evidence available: report up to 3 signals, prioritising evidenced ones
+- No Category 1/2 evidence: report INFERRED signals, each anchored to a DISTINCT, specific fact in the data. Record the absence of concrete evidence in data_gaps
+- NEVER add a signal just to reach three. Prefer one or two strong, specific signals over three weak ones — a single well-grounded signal is a better result than padded filler
+- Each signal must rest on its OWN distinct fact. Do not split one observation into multiple signals, and do not restate the company's description as a challenge
+- Employee reviews about internal conditions are NOT Category 1 evidence unless a direct business impact is reported in news
 
 ### FABRICATION TRAPS (do NOT do these)
-- REFRAMING POSITIVES AS PAIN: A LinkedIn post celebrating "100% occupancy!" is NOT evidence of "pressure to maintain occupancy." A hiring post saying "We're expanding!" is NOT evidence of "recruitment challenges." Positive signals are positive — do not invert them
-- PRODUCT-AS-PAIN: If a company PROVIDES a service, that is their strength, not their pain. Property management company → "property management complexity" is NOT a valid pain signal
-- DESCRIBING THEIR BUSINESS AS PAIN: "Managing diverse tenant needs" when that IS their job is not a pain signal — it's a job description
-- GENERIC FILLER: "They care about growth", "they need better tools", "scaling challenges" with no specific evidence
+- INVENTING EVIDENCE: Never cite a review, complaint, or news item that is not actually in the research data. If you did not see the source, the signal is at most INFERRED — label it as such
+- REFRAMING POSITIVES AS PAIN: A post celebrating a milestone is NOT evidence of pressure to sustain it. A hiring announcement is NOT evidence of a recruitment problem. Positive signals are positive — do not invert them
+- PRODUCT-AS-PAIN: If a company PROVIDES a service, that is their strength, not their pain. A provider's own service area is not a pain signal
+- DESCRIBING THEIR BUSINESS AS PAIN: The normal work of their role or industry is a job description, not a pain signal
+- GENERIC FILLER: "They care about growth", "they need better tools", "scaling challenges" with no specific fact behind them
 
 ## CONFIDENCE SCORING — HARD CALIBRATION
 Your confidence score tells a sales rep: "Can I trust this research before I pick up the phone?"
@@ -87,8 +98,8 @@ Your confidence score tells a sales rep: "Can I trust this research before I pic
 
 ### CALIBRATION CHECK: Before outputting your score, verify
 - If data_gaps mentions missing reviews/complaints/news → score MUST be ≤ 6
-- If ALL pain signals are category 3 inferences → score MUST be ≤ 4
-- If you have 0 pain signals → score MUST be ≤ 5
+- If ALL pain signals have evidence_type "inferred" → score MUST be ≤ 5
+- If you have 0 pain signals → score MUST be ≤ 4
 - Does your score match the evidence quality, or are you being optimistic? Default to LOWER when uncertain
 
 ## LINKEDIN DATA (when provided)
@@ -105,23 +116,30 @@ Your confidence score tells a sales rep: "Can I trust this research before I pic
 
 
 def _calibrate_confidence(research: dict) -> int:
-    """Safety net: cap confidence when ALL pain signals are inferred.
+    """Deterministic floor on confidence based on evidence quality.
 
-    gpt-4.1-mini sometimes generates category 3 inferences ("Likely
-    based on...", "Inferred from...") and still scores 7-8. That's
-    misleading — a sales rep trusts the score, calls the lead, and
-    has nothing concrete to reference. This caps that one scenario.
+    The model is told to calibrate confidence itself, but gpt-4.1-mini
+    routinely over-scores leads that lack concrete evidence — it returns
+    7-8 with no verified pain signals. A sales rep trusts that score,
+    calls the lead, and has nothing concrete to reference. These caps
+    enforce the prompt's own calibration rules regardless of model output:
+
+    - No pain signals at all -> cap 5 (nothing concrete to act on)
+    - Only inferred signals  -> cap 4 (no verified evidence behind them)
+
+    Signal type is read from each PainSignal's explicit `evidence_type`
+    field ("evidenced" / "inferred"), which structured output forces the
+    model to set. A lead with at least one "evidenced" signal keeps its score.
     """
     score = research["confidence_score"]
     pain_signals = research["pain_signals"]
 
-    if pain_signals:
-        all_inferred = all(
-            ps["evidence"].lower().startswith(("likely based on", "inferred from"))
-            for ps in pain_signals
-        )
-        if all_inferred:
-            score = min(score, 4)
+    if not pain_signals:
+        return min(score, 5)
+
+    all_inferred = all(ps["evidence_type"] == "inferred" for ps in pain_signals)
+    if all_inferred:
+        return min(score, 4)
 
     return score
 
