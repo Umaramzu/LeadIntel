@@ -117,6 +117,7 @@ Your confidence score tells a sales rep: "Can I trust this research before I pic
 - LinkedIn profile and posts data is HIGH-VALUE — it shows verified role, career trajectory, self-described expertise, and topics they publicly care about
 - Use the "about" section to understand their professional identity and priorities
 - Use post topics and engagement to identify what they're actively thinking about
+- POST RECENCY MATTERS: each post is tagged with its age. Posts from roughly the last 12-18 months reflect the prospect's CURRENT priorities and activity. Posts that are several years old are HISTORICAL context only — do NOT treat an old post as evidence of a current challenge, need, initiative, or priority. Weigh what a post implies about the company TODAY by how recent it is
 - Their skills list shows what they want to be known for
 - Career history shows trajectory and tenure — a new role means different priorities than someone 3 years in
 
@@ -214,7 +215,7 @@ def _build_user_prompt(
 
         if posts:
             settings = get_settings()
-            parts.append("\n--- LINKEDIN POSTS (recent activity) ---")
+            parts.append("\n--- LINKEDIN POSTS (each post is tagged with its age — weigh by recency) ---")
             for i, post in enumerate(posts[:settings.linkedin_max_posts_for_ai], 1):
                 parts.append(f"\nPost {i} ({post.get('relative_date', post.get('date', ''))}):")
                 parts.append(f"  Text: {post['text'][:500]}")
