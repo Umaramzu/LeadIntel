@@ -48,7 +48,7 @@ The prospect could be in ANY industry — healthcare, SaaS, logistics, finance, 
 
 ## COMPANY SNAPSHOT
 - "what_they_do" should be 2-3 sentences: what they do + who they serve + how they deliver value. Not a tagline — real detail from the research
-- Look for sub-brands, subsidiaries, or related brands mentioned in the research (e.g., "Company X also operates Brand Y and Brand Z"). Include these in what_they_do if found
+- Include sub-brands, subsidiaries, or related brands in what_they_do ONLY when the research EXPLICITLY states the relationship (e.g., "Company X also operates Brand Y and Brand Z"). Do NOT assume a company that merely shares a word with the prospect's name is a related brand — name overlap is not evidence of a relationship
 - "industry" must be specific: "Healthcare Revenue Cycle Management" not just "Healthcare", "E-commerce Fulfillment" not just "Logistics"
 - "key_offerings" should list their actual products/services found in the research — not generic capabilities. If their website lists specific service names or product tiers, use those
 - Capture differentiators — if reviews or content mention unique selling points (e.g., "no-deposit tenancy", "same-day delivery", "free guarantor service"), include those as offerings, not just generic service categories
@@ -62,6 +62,7 @@ A TARGET ENTITY block appears at the top of the research data with the prospect'
 - A pain signal may be marked evidence_type "evidenced" ONLY when you can confirm the source is about THIS entity — the confirmed domain appears in/matches the source, the location matches, or there is an unmistakable identifying detail. A shared company NAME is NOT confirmation.
 - If the confirmed website domain is "not confirmed", you have NO anchor to verify external reviews or complaints. Do NOT mark any third-party review/complaint/rating/news as "evidenced" — at most treat the underlying concern as "inferred", and record the unverified identity in data_gaps.
 - When a review is negative but you cannot confirm it is the same entity, leave it out entirely rather than risk attributing another company's problems to this prospect.
+- A company that merely SHARES the prospect's name is NOT automatically a division, subsidiary, sub-brand, parent, or related venture of the prospect. Do NOT fold another same-name company's business activities, offerings, news, funding, or lines of business into this prospect's profile — in ANY field — unless the research EXPLICITLY states the ownership or operational relationship (e.g., "[Prospect's company] is a subsidiary of / also operates [the other entity]"). Name overlap alone is NOT a relationship: two organisations that share a common word in their name but operate in different industries, regions, or legal entities are DIFFERENT companies unless the data explicitly links them.
 
 ## PAIN SIGNALS — ACCURACY OVER VOLUME
 A sales rep uses these signals to open a conversation. Give them a real, usable angle on the prospect — without ever fabricating facts. Two failures are equally bad: inventing concrete problems that don't exist, AND returning nothing when the data clearly supports a grounded inference.
