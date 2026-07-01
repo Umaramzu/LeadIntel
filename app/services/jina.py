@@ -32,6 +32,11 @@ GENERIC_BUSINESS_WORDS = {
     "real", "exchange", "housing", "homes", "living", "national",
     "professional", "general", "first", "united", "modern", "premier",
     "advanced", "strategic", "creative", "smart", "innovative",
+    # Common industry/facility nouns — a lone one of these must not confirm a
+    # match (e.g. 'medical'/'center' matching any medical center for 'Aries')
+    "medical", "center", "centre", "clinic", "clinics", "hospital",
+    "health", "healthcare", "care", "medicine", "dental", "wellness",
+    "pharmacy", "supply", "supplies",
 }
 
 # Must match serper.py -- compound TLDs before their simple versions

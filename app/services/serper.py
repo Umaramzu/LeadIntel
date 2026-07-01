@@ -21,6 +21,41 @@ def _company_to_slug(company_lower: str) -> str:
             .replace(" ", ""))
 
 
+def _company_leading_slugs(company_lower: str) -> set:
+    """Progressive leading-word concatenations of a company name, so a domain
+    that truncates the full legal name still matches the company:
+    'valoris group limited'    -> {'valoris', 'valorisgroup', 'valorisgrouplimited'}
+    'babsco supply'            -> {'babsco', 'babscosupply'}
+    'the psychiatry group pllc'-> {'psychiatry', 'psychiatrygroup', ...}
+
+    Leading articles ('the'/'a'/'an') are dropped so 'The Psychiatry Group'
+    still resolves to psychiatrygroup.com.
+    """
+    words = [w for w in re.sub(r"[^\w\s]", " ", company_lower).split() if w]
+    while words and words[0] in {"the", "a", "an"}:
+        words.pop(0)
+    slugs, acc = set(), ""
+    for w in words:
+        acc += w
+        if len(acc) >= 4:
+            slugs.add(acc)
+    return slugs
+
+
+def _domain_is_company(url_domain: str, company_lower: str, company_slug: str) -> bool:
+    """True if a result's domain plausibly IS the company's own website.
+
+    Matches the exact slug, domains that extend it (honeycomb -> honeycomb.io),
+    and — the case the old startswith check missed — domains that TRUNCATE the
+    full legal name by dropping trailing words like 'group'/'limited'/'supply'
+    (valorisgroup.co.uk for 'Valoris Group Limited', babsco.com for 'Babsco Supply').
+    """
+    first_label = url_domain.split(".")[0]
+    if first_label.startswith(company_slug):
+        return True
+    return first_label in _company_leading_slugs(company_lower)
+
+
 THIRD_PARTY_DOMAINS = {
     "linkedin.com", "youtube.com", "twitter.com", "x.com",
     "facebook.com", "instagram.com", "tiktok.com", "pinterest.com",
@@ -75,7 +110,7 @@ def _extract_target_domain(results: dict, company: str) -> str | None:
 
     for r in results.get("person_background", {}).get("results", []):
         url_domain = urlparse(r.get("link", "")).netloc.lower().replace("www.", "")
-        if url_domain.split(".")[0].startswith(company_slug):
+        if _domain_is_company(url_domain, company_lower, company_slug):
             if not any(tp in url_domain for tp in THIRD_PARTY_DOMAINS):
                 candidates[url_domain] = candidates.get(url_domain, 0) + 5
 
@@ -85,7 +120,7 @@ def _extract_target_domain(results: dict, company: str) -> str | None:
 
     for i, r in enumerate(results.get("company_services", {}).get("results", [])):
         url_domain = urlparse(r.get("link", "")).netloc.lower().replace("www.", "")
-        if url_domain.split(".")[0].startswith(company_slug):
+        if _domain_is_company(url_domain, company_lower, company_slug):
             if not any(tp in url_domain for tp in THIRD_PARTY_DOMAINS):
                 candidates[url_domain] = candidates.get(url_domain, 0) + (3 if i == 0 else 1)
 

@@ -53,6 +53,16 @@ The prospect could be in ANY industry — healthcare, SaaS, logistics, finance, 
 - "key_offerings" should list their actual products/services found in the research — not generic capabilities. If their website lists specific service names or product tiers, use those
 - Capture differentiators — if reviews or content mention unique selling points (e.g., "no-deposit tenancy", "same-day delivery", "free guarantor service"), include those as offerings, not just generic service categories
 
+## ENTITY CONFIRMATION — READ BEFORE ANYTHING ELSE
+The research data often includes content about DIFFERENT companies or people that share the prospect's name. Same-name collisions are extremely common on review platforms (Glassdoor, Trustpilot, Yelp, Indeed) and in general search — a "Company X reviews" result is frequently a *different* Company X.
+
+A TARGET ENTITY block appears at the top of the research data with the prospect's company, its confirmed website domain (if known), and location. Use it as the source of truth for identity.
+
+- Ignore any search result or extracted page clearly about a different company or a different location, even when the name matches.
+- A pain signal may be marked evidence_type "evidenced" ONLY when you can confirm the source is about THIS entity — the confirmed domain appears in/matches the source, the location matches, or there is an unmistakable identifying detail. A shared company NAME is NOT confirmation.
+- If the confirmed website domain is "not confirmed", you have NO anchor to verify external reviews or complaints. Do NOT mark any third-party review/complaint/rating/news as "evidenced" — at most treat the underlying concern as "inferred", and record the unverified identity in data_gaps.
+- When a review is negative but you cannot confirm it is the same entity, leave it out entirely rather than risk attributing another company's problems to this prospect.
+
 ## PAIN SIGNALS — ACCURACY OVER VOLUME
 A sales rep uses these signals to open a conversation. Give them a real, usable angle on the prospect — without ever fabricating facts. Two failures are equally bad: inventing concrete problems that don't exist, AND returning nothing when the data clearly supports a grounded inference.
 
@@ -115,7 +125,7 @@ Your confidence score tells a sales rep: "Can I trust this research before I pic
 - For revenue, ARR, or funding data: only report numbers found in the research data with a specific source citation"""
 
 
-def _calibrate_confidence(research: dict) -> int:
+def _calibrate_confidence(research: dict, entity_confirmed: bool = True) -> int:
     """Deterministic floor on confidence based on evidence quality.
 
     The model is told to calibrate confidence itself, but gpt-4.1-mini
@@ -124,12 +134,16 @@ def _calibrate_confidence(research: dict) -> int:
     calls the lead, and has nothing concrete to reference. These caps
     enforce the prompt's own calibration rules regardless of model output:
 
-    - No pain signals at all -> cap 5 (nothing concrete to act on)
-    - Only inferred signals  -> cap 4 (no verified evidence behind them)
+    - No pain signals at all       -> cap 5 (nothing concrete to act on)
+    - Only inferred signals         -> cap 4 (no verified evidence behind them)
+    - Entity could not be anchored  -> cap 4 (we can't confirm any "evidenced"
+      source is about THIS company vs a same-named one — fail safe)
 
     Signal type is read from each PainSignal's explicit `evidence_type`
     field ("evidenced" / "inferred"), which structured output forces the
-    model to set. A lead with at least one "evidenced" signal keeps its score.
+    model to set. `entity_confirmed` is False when no company website domain
+    could be identified, so external review/complaint content cannot be
+    trusted as the right entity regardless of how the model labelled it.
     """
     score = research["confidence_score"]
     pain_signals = research["pain_signals"]
@@ -138,7 +152,7 @@ def _calibrate_confidence(research: dict) -> int:
         return min(score, 5)
 
     all_inferred = all(ps["evidence_type"] == "inferred" for ps in pain_signals)
-    if all_inferred:
+    if all_inferred or not entity_confirmed:
         return min(score, 4)
 
     return score
@@ -152,6 +166,8 @@ def _build_user_prompt(
     serper_snippets: list[dict],
     jina_extractions: list[dict],
     linkedin_data: dict | None = None,
+    target_domain: str | None = None,
+    location: str | None = None,
 ) -> str:
     parts = [
         f"PROSPECT: {name}",
@@ -161,6 +177,13 @@ def _build_user_prompt(
         parts.append(f"EMAIL: {email}")
     if linkedin:
         parts.append(f"LINKEDIN: {linkedin}")
+
+    # Identity anchor — the model uses this to reject same-name wrong entities.
+    parts.append("\n--- TARGET ENTITY ---")
+    parts.append(f"Company: {company}")
+    parts.append(f"Confirmed website domain: {target_domain or 'not confirmed'}")
+    parts.append(f"Location: {location or 'not confirmed'}")
+    parts.append("Attribute reviews, complaints, and news to this prospect ONLY if the content matches this identity.")
 
     # Add LinkedIn profile + posts data (when available)
     if linkedin_data:
@@ -265,9 +288,14 @@ async def synthesize_lead(
                 "results": query_data.get("results", []),
             })
 
+    target_domain = serper_results.get("_meta", {}).get("target_domain")
+    location = (linkedin_data or {}).get("profile", {}).get("location") or None
+
     user_prompt = _build_user_prompt(
         name, company, email, linkedin, serper_snippets, jina_extractions,
         linkedin_data=linkedin_data,
+        target_domain=target_domain,
+        location=location,
     )
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -284,7 +312,9 @@ async def synthesize_lead(
 
     result = response.choices[0].message.parsed
     research_dict = result.model_dump()
-    research_dict["confidence_score"] = _calibrate_confidence(research_dict)
+    research_dict["confidence_score"] = _calibrate_confidence(
+        research_dict, entity_confirmed=bool(target_domain)
+    )
 
     return {
         "research": research_dict,
