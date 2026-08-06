@@ -16,6 +16,7 @@ from app.api.process import router as process_router
 from app.api.jobs import router as jobs_router
 from app.api.landing import router as landing_router
 from app.api.stripe_webhook import router as stripe_webhook_router
+from app.api.worker import router as worker_router
 
 settings = get_settings()
 
@@ -36,6 +37,7 @@ app.include_router(process_router)
 app.include_router(jobs_router)
 app.include_router(landing_router)
 app.include_router(stripe_webhook_router)
+app.include_router(worker_router)
 app.include_router(upload_router)
 if settings.debug:
     app.include_router(debug_router)

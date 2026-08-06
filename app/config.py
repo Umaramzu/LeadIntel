@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_key: str = ""
 
+    # GCP Cloud Tasks (order processing)
+    gcp_project: str = "amzu-technical-team-workspace"
+    tasks_location: str = "northamerica-northeast1"
+    tasks_queue: str = "leadintel-orders"
+    service_url: str = ""
+    task_auth_token: str = ""
+
     # Pipeline defaults
     cache_max_age_days: int = 30
     openai_model: str = "gpt-4.1-mini"

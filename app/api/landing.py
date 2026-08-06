@@ -1,20 +1,11 @@
 import asyncio
-import base64
 import logging
 import httpx
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from app.models import Lead, PipelineConfig
 from app.utils.csv_parser import parse_upload
-from app.services.pipeline import run_pipeline
-from app.services.excel_export import export_pipeline_results
-from app.services.db import (
-    create_order,
-    claim_order,
-    update_order,
-    upload_report,
-    create_job,
-    insert_leads,
-)
+from app.services.db import create_order, claim_order, update_order
+from app.services.tasks import enqueue_order
+from app.api.worker import run_order
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -53,109 +44,6 @@ async def _verify_payment(payment_intent_id: str) -> dict:
         )
 
     return pi
-
-
-async def _run_and_email(
-    leads: list[Lead],
-    config: PipelineConfig,
-    email: str,
-    customer_name: str,
-    order_id: str,
-    file_name: str,
-):
-    """Background task: run pipeline, store Excel, email customer, track order status."""
-    try:
-        job_id = None
-        db_lead_ids = None
-        try:
-            job = create_job(filename=file_name, total_leads=len(leads), config=config)
-            job_id = job["id"]
-            lead_rows = insert_leads(job_id, leads)
-            db_lead_ids = [r["id"] for r in lead_rows]
-            update_order(order_id, job_id=job_id)
-        except Exception as e:
-            logger.warning(
-                f"Order {order_id}: job tracking unavailable, running untracked: {e}"
-            )
-
-        result = await run_pipeline(leads, config, job_id=job_id, db_lead_ids=db_lead_ids)
-
-        buffer = export_pipeline_results(result)
-        excel_bytes = buffer.read()
-
-        # Store the report before emailing — an email failure must not lose it
-        try:
-            excel_path = upload_report(order_id, excel_bytes)
-            update_order(order_id, excel_path=excel_path)
-        except Exception as e:
-            logger.error(f"Order {order_id}: report upload to storage failed: {e}")
-
-        settings = get_settings()
-        if not settings.resend_api_key:
-            logger.error(
-                f"Order {order_id}: RESEND_API_KEY not configured, cannot email {email}"
-            )
-            update_order(
-                order_id, status="email_failed", error="RESEND_API_KEY not configured"
-            )
-            return
-
-        first_name = customer_name.split()[0] if customer_name else "there"
-
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {settings.resend_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "from": "LeadIntel <noreply@leadintel.amzuconsulting.ca>",
-                    "to": [email],
-                    "subject": f"Your LeadIntel Research Report — {result.processed} Leads",
-                    "html": (
-                        f"<p>Hi {first_name},</p>"
-                        f"<p>Your lead research is complete! We processed <strong>{result.processed} leads</strong>.</p>"
-                        f"<p>Your Excel report is attached below. It includes company overviews, "
-                        f"key insights, and actionable intelligence for each lead.</p>"
-                        f"<p>Thanks for using LeadIntel!</p>"
-                        f"<p>— The LeadIntel Team</p>"
-                    ),
-                    "attachments": [
-                        {
-                            "filename": "LeadIntel-Report.xlsx",
-                            "content": base64.b64encode(excel_bytes).decode(),
-                        }
-                    ],
-                },
-            )
-
-        if res.status_code in (200, 201):
-            update_order(order_id, status="completed")
-            logger.info(
-                f"Order {order_id} completed: emailed {email} — "
-                f"{result.processed} leads ok, {result.failed} failed, {len(excel_bytes)} bytes"
-            )
-        else:
-            update_order(
-                order_id,
-                status="email_failed",
-                error=f"Resend HTTP {res.status_code}: {res.text[:300]}",
-            )
-            logger.error(
-                f"Order {order_id}: email send failed for {email}: {res.status_code} — {res.text}"
-            )
-
-    except Exception as e:
-        logger.exception(f"Order {order_id}: background pipeline failed for {email}: {e}")
-        try:
-            update_order(
-                order_id,
-                status="pipeline_failed",
-                error=f"{type(e).__name__}: {str(e)[:400]}",
-            )
-        except Exception:
-            logger.exception(f"Order {order_id}: could not record failure status")
 
 
 @router.post("/process")
@@ -260,14 +148,6 @@ async def landing_process(
             detail=f"File has {len(leads) + len(skipped)} rows — maximum is 500 per file. Please split into smaller batches.",
         )
 
-    config = PipelineConfig(
-        search=True,
-        extract=True,
-        synthesize=True,
-        linkedin=True,
-        apollo=False,
-    )
-
     leads_to_process = leads[:paid_leads]
     update_order(
         order["id"],
@@ -277,17 +157,29 @@ async def landing_process(
         customer_name=name,
     )
 
-    asyncio.create_task(
-        _run_and_email(
-            leads_to_process, config, email, name,
-            order["id"], file.filename or "upload.csv",
-        )
-    )
+    task_payload = {
+        "order_id": order["id"],
+        "email": email,
+        "customer_name": name,
+        "file_name": file.filename or "upload.csv",
+        "leads": [l.model_dump() for l in leads_to_process],
+    }
 
-    logger.info(
-        f"Order {order['id']} started: pi={payment_intent_id} "
-        f"processing {len(leads_to_process)} of {len(leads)} valid leads"
-    )
+    try:
+        await enqueue_order(task_payload)
+        update_order(order["id"], status="queued")
+        logger.info(
+            f"Order {order['id']} queued: pi={payment_intent_id} "
+            f"{len(leads_to_process)} of {len(leads)} valid leads"
+        )
+    except Exception as e:
+        # Enqueue failure must not strand a paid customer — degrade to the
+        # old in-process run (works, just without crash recovery)
+        logger.error(
+            f"Order {order['id']}: enqueue failed ({type(e).__name__}: {e}) — "
+            f"falling back to in-process run"
+        )
+        asyncio.create_task(run_order(task_payload))
 
     return {
         "status": "processing",

@@ -171,6 +171,11 @@ def update_order(order_id: str, **kwargs) -> dict:
     return result.data[0]
 
 
+def get_order(order_id: str) -> dict | None:
+    result = get_db().table("orders").select("*").eq("id", order_id).execute()
+    return result.data[0] if result.data else None
+
+
 def get_order_by_payment_intent(payment_intent_id: str) -> dict | None:
     result = (
         get_db()
@@ -180,6 +185,10 @@ def get_order_by_payment_intent(payment_intent_id: str) -> dict | None:
         .execute()
     )
     return result.data[0] if result.data else None
+
+
+def download_report(path: str) -> bytes:
+    return get_db().storage.from_("reports").download(path)
 
 
 def upload_report(order_id: str, excel_bytes: bytes) -> str:
