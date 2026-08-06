@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from postgrest.exceptions import APIError
 from supabase import create_client, Client
 from app.config import get_settings
 from app.models import Lead, PipelineConfig
@@ -117,6 +118,82 @@ def find_existing_research(linkedin_urls: list[str], max_age_days: int | None = 
         if rr:
             existing[url] = row
     return existing
+
+
+# ── Orders (landing page) ──
+
+def create_order(
+    payment_intent_id: str,
+    email: str,
+    customer_name: str | None,
+    leads_paid: int,
+    amount_cents: int,
+    status: str = "processing",
+) -> dict | None:
+    """Insert an order. Returns None if this payment_intent_id already has one."""
+    try:
+        result = get_db().table("orders").insert({
+            "payment_intent_id": payment_intent_id,
+            "email": email,
+            "customer_name": customer_name,
+            "leads_paid": leads_paid,
+            "amount_cents": amount_cents,
+            "status": status,
+        }).execute()
+        return result.data[0]
+    except APIError as e:
+        if e.code == "23505":
+            return None
+        raise
+
+
+def claim_order(payment_intent_id: str) -> dict | None:
+    """Atomically take over an existing order for processing.
+
+    Only orders in 'paid' (webhook recorded payment, file never arrived) or
+    'pipeline_failed' (customer retry after our failure) may be claimed.
+    Any other status means the payment was already consumed — returns None
+    so the caller rejects the request as a replay.
+    """
+    result = (
+        get_db()
+        .table("orders")
+        .update({"status": "processing", "error": None})
+        .eq("payment_intent_id", payment_intent_id)
+        .in_("status", ["paid", "pipeline_failed"])
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def update_order(order_id: str, **kwargs) -> dict:
+    result = get_db().table("orders").update(kwargs).eq("id", order_id).execute()
+    return result.data[0]
+
+
+def get_order_by_payment_intent(payment_intent_id: str) -> dict | None:
+    result = (
+        get_db()
+        .table("orders")
+        .select("*")
+        .eq("payment_intent_id", payment_intent_id)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def upload_report(order_id: str, excel_bytes: bytes) -> str:
+    """Store a generated Excel in the private 'reports' bucket. Returns storage path."""
+    path = f"{order_id}.xlsx"
+    get_db().storage.from_("reports").upload(
+        path,
+        excel_bytes,
+        file_options={
+            "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "upsert": "true",
+        },
+    )
+    return path
 
 
 # ── Research Results ──
