@@ -1,12 +1,16 @@
 import httpx
 import asyncio
+import logging
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 PROFILE_ACTOR_ID = "dev_fusion~linkedin-profile-scraper"
 POSTS_ACTOR_ID = "apimaestro~linkedin-batch-profile-posts-scraper"
 
 APIFY_BASE = "https://api.apify.com/v2"
 POLL_INTERVAL = 3
+RETRY_DELAY_SECONDS = 2
 
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"}
 
@@ -148,33 +152,58 @@ async def scrape_linkedin_profile(linkedin_url: str) -> dict:
 
 
 async def scrape_linkedin_posts(linkedin_url: str) -> list[dict]:
-    """Scrape recent posts from a LinkedIn profile. Returns list of post dicts."""
+    """Scrape recent posts from a LinkedIn profile. Returns list of post dicts.
+
+    An empty RAW dataset means the actor got blocked (a profile with no posts
+    still yields a notice item) — raised so the retry wrapper can distinguish
+    it from the legitimate no-posts case, which returns []."""
     settings = get_settings()
     raw_items = await _run_actor(POSTS_ACTOR_ID, {
         "usernames": [linkedin_url],
         "limit": settings.apify_posts_limit,
     })
+    if not raw_items:
+        raise RuntimeError("posts actor returned empty dataset")
     return _extract_posts(raw_items)
 
 
+async def _with_retry(scrape, linkedin_url: str, label: str, retry_on_empty: bool):
+    """LinkedIn anti-bot intermittently hands actors an empty page while the
+    run still reports SUCCEEDED. One retry recovers most of these misses."""
+    last_error = None
+    for attempt in (1, 2):
+        try:
+            result = await scrape(linkedin_url)
+            if result or not retry_on_empty:
+                return result
+            logger.warning(
+                f"[apify] {label}: empty result for {linkedin_url} (attempt {attempt})"
+            )
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                f"[apify] {label}: {type(e).__name__}: {e} for {linkedin_url} (attempt {attempt})"
+            )
+        if attempt == 1:
+            await asyncio.sleep(RETRY_DELAY_SECONDS)
+
+    if last_error:
+        logger.error(f"[apify] {label}: giving up on {linkedin_url}")
+    return None
+
+
 async def scrape_linkedin(linkedin_url: str) -> dict:
-    """Run both profile and posts scrapers concurrently for a LinkedIn URL.
-    Returns {"profile": {...}, "posts": [...]} or partial results on error."""
-    profile_data = {}
-    posts_data = []
+    """Run both profile and posts scrapers concurrently, each with one retry.
+    Returns {"profile": {...}, "posts": [...]} — parts empty only when both
+    attempts failed (logged) or the profile genuinely has no posts."""
+    profile_task = asyncio.create_task(
+        _with_retry(scrape_linkedin_profile, linkedin_url, "profile", retry_on_empty=True)
+    )
+    posts_task = asyncio.create_task(
+        _with_retry(scrape_linkedin_posts, linkedin_url, "posts", retry_on_empty=False)
+    )
 
-    # Run both concurrently — one failing shouldn't block the other
-    profile_task = asyncio.create_task(scrape_linkedin_profile(linkedin_url))
-    posts_task = asyncio.create_task(scrape_linkedin_posts(linkedin_url))
-
-    try:
-        profile_data = await profile_task
-    except Exception:
-        profile_data = {}
-
-    try:
-        posts_data = await posts_task
-    except Exception:
-        posts_data = []
+    profile_data = await profile_task or {}
+    posts_data = await posts_task or []
 
     return {"profile": profile_data, "posts": posts_data}
