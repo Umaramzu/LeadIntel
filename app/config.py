@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     # Stripe
     stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
 
     # Email (Resend)
     resend_api_key: str = ""
