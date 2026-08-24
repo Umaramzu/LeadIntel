@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/landing", tags=["landing"])
 
 # Must stay in sync with landing/src/lib/pricing.ts
-TIER_AMOUNT_CENTS = {25: 999, 50: 1799, 100: 2999}
+TIER_AMOUNT_CENTS = {10: 2900, 25: 5900, 100: 14900}
 
 
 async def _verify_payment(payment_intent_id: str) -> dict:
