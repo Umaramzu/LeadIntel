@@ -62,6 +62,11 @@ async def stripe_webhook(request: Request):
     if event_type == "payment_intent.succeeded":
         pi = event.get("data", {}).get("object", {})
         metadata = pi.get("metadata", {})
+        # Hasaan's Stripe account also takes AMZU consulting payments; only
+        # LeadIntel checkouts carry metadata.leads, so record just those
+        if not metadata.get("leads"):
+            logger.info(f"Webhook: payment {pi.get('id')} has no leads metadata — not a LeadIntel order, ignoring")
+            return {"received": True}
         order = create_order(
             payment_intent_id=pi["id"],
             email=metadata.get("customer_email") or pi.get("receipt_email") or "unknown",
