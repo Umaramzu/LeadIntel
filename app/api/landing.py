@@ -4,6 +4,7 @@ import httpx
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from app.utils.csv_parser import parse_upload
 from app.services.db import create_order, claim_order, update_order
+from app.services.emails import send_confirmation_email
 from app.services.tasks import enqueue_order
 from app.api.worker import run_order
 from app.config import get_settings
@@ -180,6 +181,19 @@ async def landing_process(
             f"falling back to in-process run"
         )
         asyncio.create_task(run_order(task_payload))
+
+    asyncio.create_task(
+        send_confirmation_email(
+            email=email,
+            customer_name=name,
+            paid_leads=paid_leads,
+            amount_cents=expected_cents,
+            file_name=file.filename or "upload.csv",
+            valid_leads=len(leads),
+            to_process=len(leads_to_process),
+            payment_intent_id=payment_intent_id,
+        )
+    )
 
     return {
         "status": "processing",
