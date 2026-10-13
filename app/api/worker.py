@@ -40,6 +40,7 @@ async def _send_report_email(
             },
             json={
                 "from": "LeadIntel <noreply@leadintel.amzuconsulting.ca>",
+                "reply_to": "support@amzuconsulting.ca",
                 "to": [email],
                 "subject": f"Your LeadIntel Research Report — {processed} Leads",
                 "html": (
@@ -47,6 +48,7 @@ async def _send_report_email(
                     f"<p>Your lead research is complete! We processed <strong>{processed} leads</strong>.</p>"
                     f"<p>Your Excel report is attached below. It includes company overviews, "
                     f"key insights, and actionable intelligence for each lead.</p>"
+                    f"<p>Questions? Reply to this email or write to support@amzuconsulting.ca.</p>"
                     f"<p>Thanks for using LeadIntel!</p>"
                     f"<p>— The LeadIntel Team</p>"
                 ),

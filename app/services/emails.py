@@ -63,12 +63,12 @@ def _build_confirmation_html(
               <span style="font-size:14px;font-weight:600;color:#18181b;">What happens next</span>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;font-size:14px;color:#52525b;line-height:1.7;">
                 <tr><td style="padding:2px 0;"><span style="color:#2563eb;font-weight:600;">1.</span> &nbsp;We research every lead &mdash; web search, LinkedIn activity, AI synthesis.</td></tr>
-                <tr><td style="padding:2px 0;"><span style="color:#2563eb;font-weight:600;">2.</span> &nbsp;Your Excel research dossier lands in this inbox <span style="color:#18181b;font-weight:500;">within 1 hour</span> (usually minutes).</td></tr>
+                <tr><td style="padding:2px 0;"><span style="color:#2563eb;font-weight:600;">2.</span> &nbsp;Your Excel research dossier lands in this inbox &mdash; <span style="color:#18181b;font-weight:500;">most arrive within the hour</span>, guaranteed within 24 hours.</td></tr>
                 <tr><td style="padding:2px 0;"><span style="color:#2563eb;font-weight:600;">3.</span> &nbsp;Open it and start your outreach &mdash; every claim cited to a real source.</td></tr>
               </table>
             </td></tr>
             <tr><td style="padding-top:24px;border-top:1px solid #f4f4f5;">
-              <span style="font-size:13px;color:#a1a1aa;line-height:1.6;">If your report doesn't arrive within a few hours, check your spam folder first, then contact us and mention your order reference above.</span>
+              <span style="font-size:13px;color:#a1a1aa;line-height:1.6;">If your report doesn't arrive within a few hours, check your spam folder first, then email <a href="mailto:support@amzuconsulting.ca" style="color:#2563eb;text-decoration:none;">support@amzuconsulting.ca</a> with your order reference above.</span>
             </td></tr>
           </table>
         </td></tr>
@@ -121,6 +121,7 @@ async def send_confirmation_email(
                 },
                 json={
                     "from": "LeadIntel <noreply@leadintel.amzuconsulting.ca>",
+                    "reply_to": "support@amzuconsulting.ca",
                     "to": [email],
                     "subject": f"Order confirmed — Lead research, {paid_leads} leads",
                     "html": body_html,
